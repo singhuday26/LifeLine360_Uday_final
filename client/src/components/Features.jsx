@@ -96,7 +96,7 @@ export default function Features() {
 
                     <p className="text-xl text-slate-600 max-w-4xl mx-auto leading-relaxed">
                         Our cutting-edge technology combines environmental IoT sensors, AI analytics, and community reporting
-                        to deliver the most accurate and timely disaster intelligence available to protect communities worldwide.
+                        to deliver the most accurate and timely disaster intelligence available to protect communities across India.
                     </p>
                 </div>
 

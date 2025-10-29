@@ -25,7 +25,7 @@ export default function Footer() {
                             <span className="text-2xl font-bold">LifeLine360</span>
                         </div>
                         <p className="text-slate-300 leading-relaxed mb-6">
-                            Protecting communities worldwide with advanced disaster intelligence
+                            Protecting communities across India with advanced disaster intelligence
                             and real-time emergency response systems.
                         </p>
                         <div className="flex gap-4">

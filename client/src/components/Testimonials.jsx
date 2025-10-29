@@ -4,27 +4,27 @@ import { Star, Quote } from "lucide-react";
 export default function Testimonials() {
     const testimonials = [
         {
-            name: "Sarah Johnson",
+            name: "Dr. Priya Sharma",
             role: "Emergency Response Coordinator",
-            organization: "City of Austin",
+            organization: "Mumbai Municipal Corporation",
             image: "https://images.unsplash.com/photo-1494790108755-2616b612b786?w=150&h=150&fit=crop&crop=face",
-            content: "LifeLine360 has revolutionized our emergency response capabilities. The accuracy and speed of their alerts have helped us save countless lives during flood events.",
+            content: "LifeLine360 has transformed our disaster response in Mumbai. During the recent monsoon floods, their accurate alerts helped us evacuate thousands of residents safely and efficiently.",
             rating: 5
         },
         {
-            name: "Dr. Michael Chen",
+            name: "Rajesh Kumar",
             role: "Disaster Management Specialist",
-            organization: "FEMA Regional Office",
+            organization: "National Disaster Management Authority",
             image: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop&crop=face",
-            content: "The hyper-local precision of LifeLine360's sensor network is unmatched. We can now respond to disasters with unprecedented accuracy and efficiency.",
+            content: "The precision of LifeLine360's sensor network is remarkable. We can now predict and respond to disasters across India's diverse geography with unprecedented accuracy.",
             rating: 5
         },
         {
-            name: "Maria Rodriguez",
+            name: "Anjali Patel",
             role: "Community Safety Director",
-            organization: "Los Angeles County",
+            organization: "Ahmedabad District Administration",
             image: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&h=150&fit=crop&crop=face",
-            content: "Having real-time disaster intelligence at our fingertips has transformed how we protect our communities. The system is intuitive and incredibly reliable.",
+            content: "Having real-time disaster intelligence has revolutionized how we protect our communities. The system seamlessly integrates with our existing emergency protocols.",
             rating: 5
         }
     ];
@@ -34,10 +34,10 @@ export default function Testimonials() {
             <div className="max-w-7xl mx-auto px-6 lg:px-8">
                 <div className="text-center mb-16">
                     <h2 className="text-3xl lg:text-4xl font-bold text-slate-900 mb-4">
-                        Trusted by Emergency Professionals
+                        Trusted by Indian Emergency Professionals
                     </h2>
                     <p className="text-xl text-slate-600 max-w-3xl mx-auto">
-                        See what disaster management professionals are saying about LifeLine360's
+                        See what disaster management professionals across India are saying about LifeLine360's
                         impact on community safety and emergency response.
                     </p>
                 </div>

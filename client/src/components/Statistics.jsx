@@ -81,11 +81,11 @@ export default function Statistics() {
             <div className="max-w-7xl mx-auto px-6 lg:px-8">
                 <div className="text-center mb-16">
                     <h2 className="text-3xl lg:text-4xl font-bold text-slate-900 mb-4">
-                        Protecting Communities Worldwide
+                        Protecting Communities Across India
                     </h2>
                     <p className="text-xl text-slate-600 max-w-3xl mx-auto">
-                        Our global network of sensors and community reporters work together
-                        to keep millions of people safe from natural disasters.
+                        Our comprehensive network of sensors and community reporters work together
+                        to keep millions of Indians safe from natural disasters.
                     </p>
                 </div>
 

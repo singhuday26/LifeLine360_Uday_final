@@ -157,7 +157,7 @@ export default function Hero() {
                                 </div>
                                 <div className="flex items-center gap-2 bg-white rounded-full px-4 py-2 shadow-sm border border-green-100">
                                     <Globe className="w-4 h-4 text-emerald-500" />
-                                    <span className="font-medium text-slate-700">Global Scale</span>
+                                    <span className="font-medium text-slate-700">India Scale</span>
                                 </div>
                             </div>
                         </div>
@@ -307,7 +307,7 @@ export default function Hero() {
                             </div>
                         </div>
                         <span className="text-slate-700 font-semibold">
-                            Trusted by emergency professionals worldwide
+                            Trusted by emergency professionals across India
                         </span>
                         <div className="flex items-center gap-1">
                             {[...Array(5)].map((_, i) => (

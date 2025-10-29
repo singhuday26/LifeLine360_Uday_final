@@ -38,7 +38,7 @@ export default function MapVisualization({ isActive, isLiveFeed, alertCount }) {
                             Real-time Disaster Intelligence Map
                         </h3>
                         <p className="text-slate-400 text-lg">
-                            Monitoring global incidents across {alertCount} active zones
+                            Monitoring incidents across India in {alertCount} active zones
                         </p>
                     </div>
 
