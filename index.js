@@ -8,6 +8,9 @@ const mongoose = require('mongoose');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Middleware
+app.use(express.json());
+
 // Create HTTP server for WebSocket integration
 const server = http.createServer(app);
 
@@ -289,6 +292,130 @@ app.get('/api/alerts/hotspots', async (req, res) => {
         res.json(hotspots);
     } catch (error) {
         console.error('Error fetching hotspots:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// PUT endpoint to update stats
+app.put('/api/stats', async (req, res) => {
+    try {
+        const { activeAlerts, sensorsOnline, communityReports } = req.body;
+
+        // Validate input
+        if (activeAlerts !== undefined && (typeof activeAlerts !== 'number' || activeAlerts < 0)) {
+            return res.status(400).json({ error: 'activeAlerts must be a non-negative number' });
+        }
+        if (sensorsOnline !== undefined && (typeof sensorsOnline !== 'number' || sensorsOnline < 0)) {
+            return res.status(400).json({ error: 'sensorsOnline must be a non-negative number' });
+        }
+        if (communityReports !== undefined && (typeof communityReports !== 'number' || communityReports < 0)) {
+            return res.status(400).json({ error: 'communityReports must be a non-negative number' });
+        }
+
+        let stats = await Stats.findOne();
+        if (!stats) {
+            stats = new Stats({
+                activeAlerts: activeAlerts || 0,
+                sensorsOnline: sensorsOnline || 0,
+                communityReports: communityReports || 0
+            });
+        } else {
+            if (activeAlerts !== undefined) stats.activeAlerts = activeAlerts;
+            if (sensorsOnline !== undefined) stats.sensorsOnline = sensorsOnline;
+            if (communityReports !== undefined) stats.communityReports = communityReports;
+            stats.lastUpdated = new Date();
+        }
+
+        await stats.save();
+        res.json({
+            activeAlerts: stats.activeAlerts,
+            sensorsOnline: stats.sensorsOnline,
+            communityReports: stats.communityReports,
+            message: 'Stats updated successfully'
+        });
+    } catch (error) {
+        console.error('Error updating stats:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// POST endpoint to create new hotspot
+app.post('/api/alerts/hotspots', async (req, res) => {
+    try {
+        const { type, severity, location, description, sensors, status } = req.body;
+
+        // Validate required fields
+        if (!type || !severity || !location || !description || !status) {
+            return res.status(400).json({ error: 'Missing required fields: type, severity, location, description, status' });
+        }
+
+        // Validate location structure
+        if (!location.lat || !location.lng || !location.address) {
+            return res.status(400).json({ error: 'Location must include lat, lng, and address' });
+        }
+
+        // Generate new ID (find max existing ID and increment)
+        const maxHotspot = await Hotspot.findOne().sort({ id: -1 });
+        const newId = maxHotspot ? maxHotspot.id + 1 : 1;
+
+        const newHotspot = new Hotspot({
+            id: newId,
+            type,
+            severity,
+            location,
+            description,
+            sensors: sensors || [],
+            status,
+            timestamp: new Date()
+        });
+
+        await newHotspot.save();
+        res.status(201).json({
+            ...newHotspot.toObject(),
+            message: 'Hotspot created successfully'
+        });
+    } catch (error) {
+        console.error('Error creating hotspot:', error);
+        if (error.code === 11000) { // Duplicate key error
+            res.status(400).json({ error: 'Hotspot ID already exists' });
+        } else {
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    }
+});
+
+// PUT endpoint to update existing hotspot
+app.put('/api/alerts/hotspots/:id', async (req, res) => {
+    try {
+        const hotspotId = parseInt(req.params.id);
+        const updateData = req.body;
+
+        // Remove id from updateData to prevent changing the ID
+        delete updateData.id;
+
+        // Validate location if provided
+        if (updateData.location) {
+            if (!updateData.location.lat || !updateData.location.lng || !updateData.location.address) {
+                return res.status(400).json({ error: 'Location must include lat, lng, and address' });
+            }
+        }
+
+        const updatedHotspot = await Hotspot.findOneAndUpdate(
+            { id: hotspotId },
+            { ...updateData, lastUpdated: new Date() },
+            { new: true, runValidators: true }
+        );
+
+        if (!updatedHotspot) {
+            return res.status(404).json({ error: 'Hotspot not found' });
+        }
+
+        res.json({
+            ...updatedHotspot.toObject(),
+            message: 'Hotspot updated successfully'
+        });
+    } catch (error) {
+        console.error('Error updating hotspot:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
