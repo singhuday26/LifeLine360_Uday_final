@@ -2,6 +2,7 @@ const express = require('express');
 const mqtt = require('mqtt');
 const WebSocket = require('ws');
 const http = require('http');
+const mongoose = require('mongoose');
 
 // Initialize Express server
 const app = express();
@@ -111,6 +112,26 @@ function broadcastToClients(data) {
     console.log(`Broadcasted sensor data to ${sentCount} WebSocket clients`);
 }
 
+// MongoDB Connection
+mongoose.connect('mongodb://localhost:27017/lifeline360', {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+}).then(() => {
+    console.log('Connected to MongoDB');
+}).catch(err => {
+    console.error('MongoDB connection error:', err);
+});
+
+// Stats Schema
+const statsSchema = new mongoose.Schema({
+    activeAlerts: { type: Number, default: 0 },
+    sensorsOnline: { type: Number, default: 0 },
+    communityReports: { type: Number, default: 0 },
+    lastUpdated: { type: Date, default: Date.now }
+});
+
+const Stats = mongoose.model('Stats', statsSchema);
+
 // Basic Express routes
 app.get('/', (req, res) => {
     res.json({
@@ -144,15 +165,27 @@ app.get('/health', (req, res) => {
 });
 
 // API Endpoints for Dashboard
-app.get('/api/stats', (req, res) => {
-    // Hardcoded stats object (will connect to MongoDB later)
-    const stats = {
-        activeAlerts: 12,
-        sensorsOnline: 847,
-        communityReports: 2400
-    };
-
-    res.json(stats);
+app.get('/api/stats', async (req, res) => {
+    try {
+        let stats = await Stats.findOne();
+        if (!stats) {
+            // Initialize with default values if no stats exist
+            stats = new Stats({
+                activeAlerts: 12,
+                sensorsOnline: 847,
+                communityReports: 2400
+            });
+            await stats.save();
+        }
+        res.json({
+            activeAlerts: stats.activeAlerts,
+            sensorsOnline: stats.sensorsOnline,
+            communityReports: stats.communityReports
+        });
+    } catch (error) {
+        console.error('Error fetching stats:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
 });
 
 app.get('/api/alerts/hotspots', (req, res) => {
