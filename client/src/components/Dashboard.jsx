@@ -22,7 +22,7 @@ import {
     Wind
 } from "lucide-react";
 import { Link } from "react-router-dom";
-import { useSensorData } from '../hooks/useSensorData';
+import { useRealtimeData } from '../hooks/useRealtimeData';
 
 // Enhanced Premium Sensor Card Component
 function EnhancedSensorCard({ label, value, unit, icon: IconComponent, status = 'normal', trend }) { // eslint-disable-line no-unused-vars
@@ -108,10 +108,8 @@ function EnhancedSensorCard({ label, value, unit, icon: IconComponent, status = 
 }
 
 // Enhanced Hotspot Map
-function EnhancedHotspotMap() {
-    const apiUrl = import.meta.env.VITE_API_URL;
-    const { data, isConnected } = useSensorData(apiUrl, 5000);
-    const latest = data && data.length > 0 ? data[0] : null;
+function EnhancedHotspotMap({ sensorData, isConnected }) {
+    const latest = sensorData && sensorData.length > 0 ? sensorData[0] : null;
 
     return (
         <div className="h-full bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-2xl relative overflow-hidden border border-slate-700/50">
@@ -236,11 +234,9 @@ function EnhancedHotspotMap() {
 }
 
 // Enhanced Sensor Readings with better organization
-function EnhancedSensorReadings() {
-    const apiUrl = import.meta.env.VITE_API_URL;
-    const { data, loading, error, isConnected, lastUpdated, refetch } = useSensorData(apiUrl, 3000);
-    const latest = data && data.length > 0 ? data[0] : null;
-    const previous = data && data.length > 1 ? data[1] : null;
+function EnhancedSensorReadings({ sensorData, loading, error, isConnected, lastUpdated, refetch }) {
+    const latest = sensorData && sensorData.length > 0 ? sensorData[0] : null;
+    const previous = sensorData && sensorData.length > 1 ? sensorData[1] : null;
 
     const getSensorStatus = (sensorType, value) => {
         switch (sensorType) {
@@ -318,7 +314,9 @@ function EnhancedSensorReadings() {
                             {isConnected ? 'LIVE SENSOR NETWORK' : 'NETWORK OFFLINE'}
                         </span>
                         <div className="text-xs text-slate-500 font-medium">
-                            {data?.length || 0} data points • Updated every 3s
+                                                    <p className="text-sm text-slate-600 font-medium">
+                            {sensorData?.length || 0} data points • Real-time updates
+                        </p>
                         </div>
                     </div>
                 </div>
@@ -465,17 +463,23 @@ export default function EnhancedPremiumDashboard() {
     const [isAutoRefresh, setIsAutoRefresh] = useState(true);
     const [lastUpdated, setLastUpdated] = useState(new Date());
 
-    const apiUrl = import.meta.env.VITE_API_URL || 'https://disaster-management-api-nwte.onrender.com';
-    const pollInterval = parseInt(import.meta.env.VITE_POLL_INTERVAL) || 3000;
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+    const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:3001';
+    const pollInterval = parseInt(import.meta.env.VITE_POLL_INTERVAL) || 30000;
 
     const {
         data: sensorData,
+        stats,
+        hotspots,
         loading,
         error,
+        lastUpdated: realtimeLastUpdated,
         isConnected,
-        lastUpdated: sensorLastUpdated,
         refetch
-    } = useSensorData(apiUrl, pollInterval);
+    } = useRealtimeData(apiUrl, wsUrl, {
+        pollInterval,
+        enablePolling: isAutoRefresh
+    });
 
     const handleRefresh = () => {
         setLastUpdated(new Date());
@@ -493,9 +497,8 @@ export default function EnhancedPremiumDashboard() {
 
     const latest = sensorData && sensorData.length > 0 ? sensorData[0] : null;
 
-    const criticalAlerts = sensorData ? sensorData.filter(d =>
-        d.isFlame || d.gasValue > 500 || d.smoke > 2000 || d.temperature > 35 || d.pm25 > 35 || d.waterLevel > 15
-    ).length : 0;
+    const criticalAlerts = stats?.activeAlerts || 0;
+    const activeSensors = stats?.sensorsOnline || sensorData?.length || 0;
 
     if (error) {
         return (
@@ -542,7 +545,7 @@ export default function EnhancedPremiumDashboard() {
                                     <div className="flex items-center gap-2">
                                         <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
                                         <p className="text-slate-600 font-medium">
-                                            Real-time monitoring • {sensorData?.length || 0} active sensors
+                                            Real-time monitoring • {activeSensors} active sensors
                                         </p>
                                     </div>
                                     <div className={`flex items-center gap-3 px-4 py-2 rounded-xl border-2 backdrop-blur-sm ${
@@ -552,7 +555,7 @@ export default function EnhancedPremiumDashboard() {
                                     } shadow-sm`}>
                                         <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-red-500'} animate-pulse`}></div>
                                         <span className="text-sm font-bold">
-                                            {formatLastUpdated(sensorLastUpdated || lastUpdated)}
+                                            {formatLastUpdated(realtimeLastUpdated || lastUpdated)}
                                         </span>
                                     </div>
                                 </div>
@@ -667,7 +670,7 @@ export default function EnhancedPremiumDashboard() {
                             <div className={`w-4 h-4 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-red-500'} animate-pulse shadow-lg`}></div>
                         </div>
                         <div className="relative z-10">
-                            <div className="text-4xl font-black text-slate-900 mb-2">{sensorData?.length || 0}</div>
+                            <div className="text-4xl font-black text-slate-900 mb-2">{activeSensors}</div>
                             <div className="text-sm font-bold text-slate-600 uppercase tracking-wider mb-3">Active Sensors</div>
                             <div className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold text-purple-700 bg-purple-100 uppercase tracking-wide">
                                 NETWORK ACTIVE
@@ -692,7 +695,7 @@ export default function EnhancedPremiumDashboard() {
                             </div>
                         </div>
                         <div className="h-96">
-                            <EnhancedHotspotMap />
+                            <EnhancedHotspotMap sensorData={sensorData} isConnected={isConnected} />
                         </div>
                     </div>
 
@@ -710,7 +713,14 @@ export default function EnhancedPremiumDashboard() {
                             </div>
                         </div>
                         <div className="max-h-96 overflow-y-auto">
-                            <EnhancedSensorReadings />
+                            <EnhancedSensorReadings
+                                sensorData={sensorData}
+                                loading={loading}
+                                error={error}
+                                isConnected={isConnected}
+                                lastUpdated={realtimeLastUpdated}
+                                refetch={refetch}
+                            />
                         </div>
                     </div>
                 </div>

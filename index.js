@@ -241,6 +241,17 @@ async function updateSensorsOnline() {
         await stats.save();
 
         console.log(`Updated sensors online count: ${sensorsOnline}`);
+
+        // Broadcast stats update to WebSocket clients
+        broadcastToClients({
+            type: 'stats_update',
+            data: {
+                activeAlerts: stats.activeAlerts,
+                sensorsOnline: stats.sensorsOnline,
+                communityReports: stats.communityReports
+            },
+            timestamp: new Date().toISOString()
+        });
     } catch (error) {
         console.error('Error updating sensors online:', error);
     }
@@ -295,6 +306,17 @@ async function incrementActiveAlerts() {
         await stats.save();
 
         console.log(`Incremented active alerts: ${stats.activeAlerts}`);
+
+        // Broadcast stats update to WebSocket clients
+        broadcastToClients({
+            type: 'stats_update',
+            data: {
+                activeAlerts: stats.activeAlerts,
+                sensorsOnline: stats.sensorsOnline,
+                communityReports: stats.communityReports
+            },
+            timestamp: new Date().toISOString()
+        });
     } catch (error) {
         console.error('Error incrementing active alerts:', error);
     }
@@ -653,6 +675,17 @@ app.put('/api/stats', async (req, res) => {
             sensorsOnline: stats.sensorsOnline,
             communityReports: stats.communityReports,
             message: 'Stats updated successfully'
+        });
+
+        // Broadcast stats update to WebSocket clients
+        broadcastToClients({
+            type: 'stats_update',
+            data: {
+                activeAlerts: stats.activeAlerts,
+                sensorsOnline: stats.sensorsOnline,
+                communityReports: stats.communityReports
+            },
+            timestamp: new Date().toISOString()
         });
     } catch (error) {
         console.error('Error updating stats:', error);
