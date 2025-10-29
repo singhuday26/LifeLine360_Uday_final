@@ -6,8 +6,13 @@
   "scripts": {
     "dev": "npm --prefix client run dev",
     "build": "npm --prefix client run build",
-  "lint": "npm --prefix client run lint",
+    "lint": "npm --prefix client run lint",
+    "server": "node index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "private": true
+  "private": true,
+  "dependencies": {
+    "express": "^5.1.0",
+    "mqtt": "^5.14.1"
+  }
 }

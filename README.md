@@ -40,11 +40,53 @@ Traditional disaster management systems suffer from:
 - **Alert Modules:** Buzzer + LED indicators  
 - **Communication:** Wi-Fi, LoRa, GSM  
 
-### 🔹 Software  
-- **Backend API:** Python (Flask / FastAPI)  
-- **NLP Engine:** spaCy, HuggingFace Transformers  
-- **Frontend:** React (Web), React Native (Mobile)  
-- **Messaging:** Twilio SMS API, Firebase Cloud Messaging  
+### 🔹 Software
+
+- **Backend API:** Node.js + Express
+- **Database:** MongoDB
+- **Real-time:** MQTT (HiveMQ) + WebSockets
+- **Frontend:** React + Vite, Tailwind CSS, React Router
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+- Node.js (v16 or higher)
+- npm or yarn
+
+### Installation
+
+1. **Clone the repository**
+
+   ```bash
+   git clone https://github.com/singhuday26/LifeLine360_Uday_final.git
+   cd LifeLine360_Uday-branch-uday
+   ```
+
+2. **Install dependencies**
+
+   ```bash
+   npm install
+   cd client && npm install && cd ..
+   ```
+
+3. **Start the backend server**
+
+   ```bash
+   npm run server
+   ```
+
+   The server will start on port 3001 and connect to HiveMQ MQTT broker.
+
+4. **Start the frontend (in a new terminal)**
+
+   ```bash
+   npm run dev
+   ```
+
+   The React app will be available at `http://localhost:5173`.
 
 ---
 
