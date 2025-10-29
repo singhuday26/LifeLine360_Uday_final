@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { TrendingUp, Users, MapPin, Clock } from "lucide-react";
 
 export default function Statistics() {
@@ -9,12 +9,12 @@ export default function Statistics() {
         response: 0
     });
 
-    const finalValues = {
+    const finalValues = useMemo(() => ({
         alerts: 2847,
         users: 150000,
         locations: 847,
         response: 1.2
-    };
+    }), []);
 
     useEffect(() => {
         const duration = 2000; // 2 seconds
@@ -39,7 +39,7 @@ export default function Statistics() {
         });
 
         return () => intervals.forEach(interval => clearInterval(interval));
-    }, []);
+    }, [finalValues]);
 
     const stats = [
         {

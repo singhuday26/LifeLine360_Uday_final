@@ -1,10 +1,10 @@
 import React from "react";
-import { Sensors, Brain, Bell, Users } from "lucide-react";
+import { Activity, Brain, Bell, Users } from "lucide-react";
 
 export default function HowItWorks() {
     const steps = [
         {
-            icon: Sensors,
+            icon: Activity,
             title: "Sensor Network Detection",
             description: "Our distributed IoT sensors continuously monitor environmental conditions, detecting anomalies in real-time across urban and rural areas.",
             step: "01"

@@ -40,18 +40,18 @@ export default function Navbar() {
                         >
                             Dashboard
                         </Link>
-                        <a
-                            href="#sensors"
+                        <Link
+                            to="/sensors"
                             className="text-slate-600 hover:text-slate-900 px-3 py-2 text-sm font-medium transition-colors duration-200 hover:underline underline-offset-4"
                         >
                             Sensors
-                        </a>
-                        <a
-                            href="#how-it-works"
+                        </Link>
+                        <Link
+                            to="/how-it-works"
                             className="text-slate-600 hover:text-slate-900 px-3 py-2 text-sm font-medium transition-colors duration-200 hover:underline underline-offset-4"
                         >
                             How it works
-                        </a>
+                        </Link>
                     </div>
 
                     {/* CTA Button & Mobile Menu Button */}
@@ -102,20 +102,20 @@ export default function Navbar() {
                         >
                             Dashboard
                         </Link>
-                        <a
-                            href="#sensors"
+                        <Link
+                            to="/sensors"
                             onClick={closeMenu}
                             className="block px-4 py-3 text-slate-600 hover:text-slate-900 hover:bg-white rounded-lg text-sm font-medium transition-all duration-200"
                         >
                             Sensors
-                        </a>
-                        <a
-                            href="#how-it-works"
+                        </Link>
+                        <Link
+                            to="/how-it-works"
                             onClick={closeMenu}
                             className="block px-4 py-3 text-slate-600 hover:text-slate-900 hover:bg-white rounded-lg text-sm font-medium transition-all duration-200"
                         >
                             How it works
-                        </a>
+                        </Link>
                     </div>
                 </div>
             </div>

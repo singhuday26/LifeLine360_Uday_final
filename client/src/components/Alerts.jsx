@@ -78,7 +78,6 @@ export default function Alerts() {
     const [isLiveMode, setIsLiveMode] = useState(true);
     const [showFilters, setShowFilters] = useState(false);
     const [sortBy, setSortBy] = useState('timestamp');
-    const [viewMode, setViewMode] = useState('cards'); // cards, list, compact
 
     // Generate sample alerts
     const generateAlert = useCallback(() => {
@@ -176,9 +175,10 @@ export default function Alerts() {
             switch (sortBy) {
                 case 'priority':
                     return ALERT_TYPES[a.type].priority - ALERT_TYPES[b.type].priority;
-                case 'severity':
+                case 'severity': {
                     const severityOrder = { 'Critical': 0, 'High': 1, 'Medium': 2, 'Low': 3 };
                     return severityOrder[a.severity] - severityOrder[b.severity];
+                }
                 case 'location':
                     return a.location.localeCompare(b.location);
                 case 'timestamp':
@@ -252,7 +252,6 @@ export default function Alerts() {
                 alerts={filteredAlerts}
                 unreadCount={unreadCount}
                 criticalCount={criticalCount}
-                types={ALERT_TYPES}
             />
 
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
@@ -374,7 +373,6 @@ export default function Alerts() {
                                             config={ALERT_TYPES[alert.type]}
                                             onDismiss={handleDismissAlert}
                                             onMarkAsRead={handleMarkAsRead}
-                                            viewMode={viewMode}
                                         />
                                     ))}
                                 </div>

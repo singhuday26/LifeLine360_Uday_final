@@ -1,7 +1,8 @@
 import React, { useState } from "react";
+import PropTypes from "prop-types";
 import { Clock, MapPin, Users, X, Eye, ExternalLink, MoreVertical } from "lucide-react";
 
-export default function AlertCard({ alert, config, onDismiss, onMarkAsRead, compact = false, viewMode = 'cards' }) {
+const AlertCard = ({ alert, config, onDismiss, onMarkAsRead, compact = false }) => {
     const [showDetails, setShowDetails] = useState(false);
     const Icon = config.icon;
 
@@ -140,4 +141,33 @@ export default function AlertCard({ alert, config, onDismiss, onMarkAsRead, comp
             </div>
         </div>
     );
-}
+};
+
+AlertCard.propTypes = {
+    alert: PropTypes.shape({
+        id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
+        title: PropTypes.string.isRequired,
+        description: PropTypes.string,
+        location: PropTypes.string.isRequired,
+        source: PropTypes.string.isRequired,
+        category: PropTypes.string.isRequired,
+        timestamp: PropTypes.number.isRequired,
+        severity: PropTypes.string.isRequired,
+        affectedPopulation: PropTypes.number.isRequired,
+        status: PropTypes.string.isRequired,
+        confidence: PropTypes.number.isRequired,
+        isRead: PropTypes.bool.isRequired,
+        tags: PropTypes.arrayOf(PropTypes.string).isRequired,
+    }).isRequired,
+    config: PropTypes.shape({
+        icon: PropTypes.elementType.isRequired,
+        color: PropTypes.string.isRequired,
+        bg: PropTypes.string.isRequired,
+        border: PropTypes.string.isRequired,
+    }).isRequired,
+    onDismiss: PropTypes.func.isRequired,
+    onMarkAsRead: PropTypes.func.isRequired,
+    compact: PropTypes.bool,
+};
+
+export default AlertCard;

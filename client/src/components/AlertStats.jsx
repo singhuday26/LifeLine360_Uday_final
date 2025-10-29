@@ -1,18 +1,9 @@
 import React from "react";
 import { TrendingUp, AlertTriangle, CheckCircle, Clock } from "lucide-react";
 
-export default function AlertStats({ alerts, unreadCount, criticalCount, types }) {
-    const getTypeStats = () => {
-        return Object.keys(types).map(type => ({
-            type,
-            count: alerts.filter(alert => alert.type === type).length,
-            config: types[type]
-        }));
-    };
-
+export default function AlertStats({ alerts, unreadCount, criticalCount }) {
     const totalAlerts = alerts.length;
     const resolvedAlerts = alerts.filter(alert => alert.status === 'Resolved').length;
-    const activeAlerts = totalAlerts - resolvedAlerts;
 
     return (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">

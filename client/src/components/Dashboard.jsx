@@ -21,10 +21,11 @@ import {
     ChevronDown,
     Wind
 } from "lucide-react";
+import { Link } from "react-router-dom";
 import { useSensorData } from '../hooks/useSensorData';
 
 // Enhanced Premium Sensor Card Component
-function EnhancedSensorCard({ label, value, unit, icon: Icon, status = 'normal', trend }) {
+function EnhancedSensorCard({ label, value, unit, icon: IconComponent, status = 'normal', trend }) { // eslint-disable-line no-unused-vars
     const statusConfig = {
         normal: {
             bg: 'bg-gradient-to-br from-emerald-50 to-teal-50',
@@ -71,7 +72,7 @@ function EnhancedSensorCard({ label, value, unit, icon: Icon, status = 'normal',
             {/* Header */}
             <div className="flex items-center justify-between mb-4">
                 <div className={`${config.iconBg} p-3 rounded-xl shadow-sm group-hover:scale-110 transition-transform duration-300`}>
-                    <Icon className={`w-6 h-6 ${config.text}`} />
+                    <IconComponent className={`w-6 h-6 ${config.text}`} />
                 </div>
                 <div className="flex items-center gap-2">
                     {trend && (
@@ -100,7 +101,7 @@ function EnhancedSensorCard({ label, value, unit, icon: Icon, status = 'normal',
 
             {/* Subtle pattern overlay */}
             <div className="absolute bottom-0 right-0 w-24 h-24 opacity-5">
-                <Icon className="w-full h-full" />
+                <IconComponent className="w-full h-full" />
             </div>
         </div>
     );
@@ -496,6 +497,24 @@ export default function EnhancedPremiumDashboard() {
         d.isFlame || d.gasValue > 500 || d.smoke > 2000 || d.temperature > 35 || d.pm25 > 35 || d.waterLevel > 15
     ).length : 0;
 
+    if (error) {
+        return (
+            <main className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 flex items-center justify-center">
+                <div className="text-center">
+                    <AlertTriangle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+                    <h1 className="text-2xl font-bold text-slate-900 mb-2">Error Loading Dashboard</h1>
+                    <p className="text-slate-600">{error.message || 'An error occurred while fetching sensor data.'}</p>
+                    <button
+                        onClick={handleRefresh}
+                        className="mt-4 px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+                    >
+                        Retry
+                    </button>
+                </div>
+            </main>
+        );
+    }
+
     return (
         <main className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 relative overflow-x-hidden">
             {/* Animated background elements */}
@@ -541,6 +560,20 @@ export default function EnhancedPremiumDashboard() {
                         </div>
 
                         <div className="flex items-center gap-4">
+                            <Link
+                                to="/sensors"
+                                className="flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-blue-500 to-indigo-500 text-white rounded-xl font-bold text-sm transition-all duration-300 shadow-lg transform hover:scale-105 hover:shadow-blue-500/25"
+                            >
+                                <Activity className="w-5 h-5" />
+                                View Sensors
+                            </Link>
+                            <Link
+                                to="/how-it-works"
+                                className="flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-bold text-sm transition-all duration-300 shadow-lg transform hover:scale-105 hover:shadow-purple-500/25"
+                            >
+                                <Settings className="w-5 h-5" />
+                                How It Works
+                            </Link>
                             <button
                                 onClick={() => setIsAutoRefresh(!isAutoRefresh)}
                                 className={`flex items-center gap-3 px-6 py-3 rounded-xl font-bold text-sm transition-all duration-300 shadow-lg transform hover:scale-105 ${
