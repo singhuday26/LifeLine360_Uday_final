@@ -414,9 +414,70 @@ app.get('/api/stats', async (req, res) => {
 
 app.get('/api/alerts/hotspots', async (req, res) => {
     try {
-        let hotspots = await Hotspot.find();
-        if (hotspots.length === 0) {
-            // Initialize with default hotspots if collection is empty
+        // Build filter object from query parameters
+        const filter = {};
+
+        // Filter by type (e.g., ?type=flood,fire)
+        if (req.query.type) {
+            const types = req.query.type.split(',').map(t => t.trim());
+            filter.type = { $in: types };
+        }
+
+        // Filter by severity (e.g., ?severity=high,critical)
+        if (req.query.severity) {
+            const severities = req.query.severity.split(',').map(s => s.trim());
+            filter.severity = { $in: severities };
+        }
+
+        // Filter by status (e.g., ?status=active,monitoring)
+        if (req.query.status) {
+            const statuses = req.query.status.split(',').map(s => s.trim());
+            filter.status = { $in: statuses };
+        }
+
+        // Filter by city/address (e.g., ?city=Delhi,Mumbai)
+        if (req.query.city) {
+            const cities = req.query.city.split(',').map(c => c.trim());
+            filter['location.address'] = {
+                $regex: new RegExp(cities.join('|'), 'i')
+            };
+        }
+
+        // Filter by date range (e.g., ?startDate=2024-01-01&endDate=2024-12-31)
+        if (req.query.startDate || req.query.endDate) {
+            filter.timestamp = {};
+            if (req.query.startDate) {
+                filter.timestamp.$gte = new Date(req.query.startDate);
+            }
+            if (req.query.endDate) {
+                filter.timestamp.$lte = new Date(req.query.endDate);
+            }
+        }
+
+        // Build sort object
+        let sort = { timestamp: -1 }; // Default: newest first
+        if (req.query.sort) {
+            const sortFields = req.query.sort.split(',').map(s => s.trim());
+            sort = {};
+            sortFields.forEach(field => {
+                if (field.startsWith('-')) {
+                    sort[field.substring(1)] = -1; // Descending
+                } else {
+                    sort[field] = 1; // Ascending
+                }
+            });
+        }
+
+        // Set limit (default 50, max 100)
+        const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+
+        // Execute query
+        let hotspots = await Hotspot.find(filter)
+            .sort(sort)
+            .limit(limit);
+
+        // If no hotspots found and no filters applied, initialize with defaults
+        if (hotspots.length === 0 && Object.keys(filter).length === 0) {
             const defaultHotspots = [
                 {
                     id: 1,
@@ -490,9 +551,30 @@ app.get('/api/alerts/hotspots', async (req, res) => {
                 }
             ];
             await Hotspot.insertMany(defaultHotspots);
-            hotspots = await Hotspot.find();
+            hotspots = await Hotspot.find(filter)
+                .sort(sort)
+                .limit(limit);
         }
-        res.json(hotspots);
+
+        // Add metadata to response
+        const response = {
+            data: hotspots,
+            metadata: {
+                total: hotspots.length,
+                filters: {
+                    type: req.query.type || null,
+                    severity: req.query.severity || null,
+                    status: req.query.status || null,
+                    city: req.query.city || null,
+                    startDate: req.query.startDate || null,
+                    endDate: req.query.endDate || null
+                },
+                sort: req.query.sort || 'timestamp:desc',
+                limit: limit
+            }
+        };
+
+        res.json(response);
     } catch (error) {
         console.error('Error fetching hotspots:', error);
         res.status(500).json({ error: 'Internal server error' });
