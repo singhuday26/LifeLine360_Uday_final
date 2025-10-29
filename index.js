@@ -132,6 +132,24 @@ const statsSchema = new mongoose.Schema({
 
 const Stats = mongoose.model('Stats', statsSchema);
 
+// Hotspot Schema
+const hotspotSchema = new mongoose.Schema({
+    id: { type: Number, required: true, unique: true },
+    type: { type: String, required: true },
+    severity: { type: String, required: true },
+    location: {
+        lat: { type: Number, required: true },
+        lng: { type: Number, required: true },
+        address: { type: String, required: true }
+    },
+    description: { type: String, required: true },
+    timestamp: { type: Date, default: Date.now },
+    sensors: [{ type: String }],
+    status: { type: String, required: true }
+});
+
+const Hotspot = mongoose.model('Hotspot', hotspotSchema);
+
 // Basic Express routes
 app.get('/', (req, res) => {
     res.json({
@@ -188,82 +206,91 @@ app.get('/api/stats', async (req, res) => {
     }
 });
 
-app.get('/api/alerts/hotspots', (req, res) => {
-    // Hardcoded array of incident objects for the map
-    const hotspots = [
-        {
-            id: 1,
-            type: 'flood',
-            severity: 'high',
-            location: {
-                lat: 28.6139,
-                lng: 77.2090,
-                address: 'Connaught Place, New Delhi'
-            },
-            description: 'Flash flood in central Delhi area',
-            timestamp: new Date().toISOString(),
-            sensors: ['rain_gauge_001', 'water_level_002'],
-            status: 'active'
-        },
-        {
-            id: 2,
-            type: 'fire',
-            severity: 'critical',
-            location: {
-                lat: 19.0760,
-                lng: 72.8777,
-                address: 'Bandra West, Mumbai'
-            },
-            description: 'Building fire reported with smoke detection',
-            timestamp: new Date(Date.now() - 1800000).toISOString(), // 30 minutes ago
-            sensors: ['smoke_detector_005', 'temperature_003'],
-            status: 'active'
-        },
-        {
-            id: 3,
-            type: 'earthquake',
-            severity: 'medium',
-            location: {
-                lat: 13.0827,
-                lng: 80.2707,
-                address: 'T. Nagar, Chennai'
-            },
-            description: 'Minor seismic activity detected',
-            timestamp: new Date(Date.now() - 3600000).toISOString(), // 1 hour ago
-            sensors: ['seismic_sensor_007', 'accelerometer_004'],
-            status: 'monitoring'
-        },
-        {
-            id: 4,
-            type: 'air_quality',
-            severity: 'low',
-            location: {
-                lat: 22.5726,
-                lng: 88.3639,
-                address: 'Salt Lake City, Kolkata'
-            },
-            description: 'Elevated PM2.5 levels detected',
-            timestamp: new Date(Date.now() - 7200000).toISOString(), // 2 hours ago
-            sensors: ['air_quality_008', 'pm25_sensor_006'],
-            status: 'resolved'
-        },
-        {
-            id: 5,
-            type: 'flood',
-            severity: 'high',
-            location: {
-                lat: 12.9716,
-                lng: 77.5946,
-                address: 'Whitefield, Bangalore'
-            },
-            description: 'Heavy rainfall causing water accumulation',
-            timestamp: new Date(Date.now() - 900000).toISOString(), // 15 minutes ago
-            sensors: ['rain_sensor_009', 'water_level_010'],
-            status: 'active'
+app.get('/api/alerts/hotspots', async (req, res) => {
+    try {
+        let hotspots = await Hotspot.find();
+        if (hotspots.length === 0) {
+            // Initialize with default hotspots if collection is empty
+            const defaultHotspots = [
+                {
+                    id: 1,
+                    type: 'flood',
+                    severity: 'high',
+                    location: {
+                        lat: 28.6139,
+                        lng: 77.2090,
+                        address: 'Connaught Place, New Delhi'
+                    },
+                    description: 'Flash flood in central Delhi area',
+                    timestamp: new Date(),
+                    sensors: ['rain_gauge_001', 'water_level_002'],
+                    status: 'active'
+                },
+                {
+                    id: 2,
+                    type: 'fire',
+                    severity: 'critical',
+                    location: {
+                        lat: 19.0760,
+                        lng: 72.8777,
+                        address: 'Bandra West, Mumbai'
+                    },
+                    description: 'Building fire reported with smoke detection',
+                    timestamp: new Date(Date.now() - 1800000), // 30 minutes ago
+                    sensors: ['smoke_detector_005', 'temperature_003'],
+                    status: 'active'
+                },
+                {
+                    id: 3,
+                    type: 'earthquake',
+                    severity: 'medium',
+                    location: {
+                        lat: 13.0827,
+                        lng: 80.2707,
+                        address: 'T. Nagar, Chennai'
+                    },
+                    description: 'Minor seismic activity detected',
+                    timestamp: new Date(Date.now() - 3600000), // 1 hour ago
+                    sensors: ['seismic_sensor_007', 'accelerometer_004'],
+                    status: 'monitoring'
+                },
+                {
+                    id: 4,
+                    type: 'air_quality',
+                    severity: 'low',
+                    location: {
+                        lat: 22.5726,
+                        lng: 88.3639,
+                        address: 'Salt Lake City, Kolkata'
+                    },
+                    description: 'Elevated PM2.5 levels detected',
+                    timestamp: new Date(Date.now() - 7200000), // 2 hours ago
+                    sensors: ['air_quality_008', 'pm25_sensor_006'],
+                    status: 'resolved'
+                },
+                {
+                    id: 5,
+                    type: 'flood',
+                    severity: 'high',
+                    location: {
+                        lat: 12.9716,
+                        lng: 77.5946,
+                        address: 'Whitefield, Bangalore'
+                    },
+                    description: 'Heavy rainfall causing water accumulation',
+                    timestamp: new Date(Date.now() - 900000), // 15 minutes ago
+                    sensors: ['rain_sensor_009', 'water_level_010'],
+                    status: 'active'
+                }
+            ];
+            await Hotspot.insertMany(defaultHotspots);
+            hotspots = await Hotspot.find();
         }
-    ];
-
-    res.json(hotspots);
+        res.json(hotspots);
+    } catch (error) {
+        console.error('Error fetching hotspots:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
 });
 
 // Start the server
