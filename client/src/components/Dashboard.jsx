@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useRealtimeData } from '../hooks/useRealtimeData';
+import GoogleMapsHotspotMap from './GoogleMapsHotspotMap';
 
 // Enhanced Premium Sensor Card Component
 function EnhancedSensorCard({ label, value, unit, icon: IconComponent, status = 'normal', trend }) { // eslint-disable-line no-unused-vars
@@ -108,129 +109,8 @@ function EnhancedSensorCard({ label, value, unit, icon: IconComponent, status = 
 }
 
 // Enhanced Hotspot Map
-function EnhancedHotspotMap({ sensorData, isConnected }) {
-    const latest = sensorData && sensorData.length > 0 ? sensorData[0] : null;
-
-    return (
-        <div className="h-full bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-2xl relative overflow-hidden border border-slate-700/50">
-            {/* Animated grid pattern */}
-            <div className="absolute inset-0 opacity-20">
-                <div className="grid grid-cols-16 h-full">
-                    {Array.from({ length: 256 }).map((_, i) => (
-                        <div key={i} className="border border-cyan-500/20 animate-pulse" style={{
-                            animationDelay: `${i * 0.1}s`,
-                            animationDuration: '4s'
-                        }}></div>
-                    ))}
-                </div>
-            </div>
-
-            {/* Central sensor pulse */}
-            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
-                <div className="relative">
-                    {/* Multiple pulse rings */}
-                    <div className="absolute inset-0 w-8 h-8 rounded-full bg-cyan-400/30 animate-ping"></div>
-                    <div className="absolute inset-0 w-8 h-8 rounded-full bg-cyan-400/40 animate-ping" style={{animationDelay: '0.5s'}}></div>
-                    <div className="absolute inset-0 w-8 h-8 rounded-full bg-cyan-400/50 animate-ping" style={{animationDelay: '1s'}}></div>
-
-                    <div className={`w-8 h-8 rounded-full shadow-xl shadow-cyan-500/50 ${
-                        latest?.isFlame ? 'bg-gradient-to-br from-red-400 to-red-600' :
-                            latest?.smoke > 2000 ? 'bg-gradient-to-br from-orange-400 to-red-500' :
-                                latest?.temperature > 35 ? 'bg-gradient-to-br from-orange-400 to-red-500' :
-                                    'bg-gradient-to-br from-cyan-400 to-blue-500'
-                    } animate-pulse border-2 border-white/50`}></div>
-                </div>
-            </div>
-
-            {/* Enhanced data overlays with glassmorphism */}
-            {latest && (
-                <>
-                    <div className="absolute top-6 left-6 bg-black/40 backdrop-blur-md rounded-xl px-4 py-3 shadow-xl border border-white/10">
-                        <div className="flex items-center gap-3">
-                            <Thermometer className="w-5 h-5 text-red-400" />
-                            <div>
-                                <div className="text-xs text-slate-300 font-medium">Temperature</div>
-                                <div className="text-lg font-bold text-white">{latest.temperature?.toFixed(1)}°C</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="absolute top-6 right-6 bg-black/40 backdrop-blur-md rounded-xl px-4 py-3 shadow-xl border border-white/10">
-                        <div className="flex items-center gap-3">
-                            <Droplets className="w-5 h-5 text-blue-400" />
-                            <div>
-                                <div className="text-xs text-slate-300 font-medium">Humidity</div>
-                                <div className="text-lg font-bold text-white">{latest.humidity?.toFixed(1)}%</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="absolute bottom-20 left-6 bg-black/40 backdrop-blur-md rounded-xl px-4 py-3 shadow-xl border border-white/10">
-                        <div className="flex items-center gap-3">
-                            <Flame className="w-5 h-5 text-orange-400" />
-                            <div>
-                                <div className="text-xs text-slate-300 font-medium">Gas Level</div>
-                                <div className="text-lg font-bold text-white">{latest.gasValue || 0}</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="absolute bottom-20 right-6 bg-black/40 backdrop-blur-md rounded-xl px-4 py-3 shadow-xl border border-white/10">
-                        <div className="flex items-center gap-3">
-                            <Wind className="w-5 h-5 text-gray-400" />
-                            <div>
-                                <div className="text-xs text-slate-300 font-medium">Smoke</div>
-                                <div className="text-lg font-bold text-white">{latest.smoke || 0}</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="absolute bottom-6 right-6 bg-black/40 backdrop-blur-md rounded-xl px-4 py-3 shadow-xl border border-white/10">
-                        <div className="flex items-center gap-3">
-                            <MapPin className="w-5 h-5 text-purple-400" />
-                            <div>
-                                <div className="text-xs text-slate-300 font-medium">Location</div>
-                                <div className="text-sm font-bold text-white">
-                                    {latest.latitude?.toFixed(2)}, {latest.longitude?.toFixed(2)}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </>
-            )}
-
-            {/* Enhanced status badge */}
-            <div className="absolute top-6 left-1/2 transform -translate-x-1/2">
-                <div className={`px-4 py-2 rounded-full text-sm font-bold border backdrop-blur-md ${
-                    isConnected
-                        ? 'bg-green-500/20 text-green-300 border-green-400/50 shadow-green-500/25'
-                        : 'bg-red-500/20 text-red-300 border-red-400/50 shadow-red-500/25'
-                } shadow-xl`}>
-                    <div className="flex items-center gap-2">
-                        <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'} animate-pulse`}></div>
-                        {isConnected ? 'LIVE MONITORING' : 'CONNECTION LOST'}
-                    </div>
-                </div>
-            </div>
-
-            {/* Scanning line effect */}
-            <div className="absolute inset-0 pointer-events-none">
-                <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-transparent via-cyan-400 to-transparent animate-pulse"
-                     style={{
-                         animation: 'scan 3s linear infinite',
-                     }}>
-                </div>
-            </div>
-
-            <style jsx>{`
-                @keyframes scan {
-                    0% { transform: translateY(0); opacity: 1; }
-                    50% { opacity: 0.8; }
-                    100% { transform: translateY(100vh); opacity: 0; }
-                }
-            `}</style>
-        </div>
-    );
+function EnhancedHotspotMap({ hotspots, isConnected }) {
+    return <GoogleMapsHotspotMap hotspots={hotspots} isConnected={isConnected} />;
 }
 
 // Enhanced Sensor Readings with better organization
@@ -695,7 +575,7 @@ export default function EnhancedPremiumDashboard() {
                             </div>
                         </div>
                         <div className="h-96">
-                            <EnhancedHotspotMap sensorData={sensorData} isConnected={isConnected} />
+                            <EnhancedHotspotMap hotspots={hotspots} isConnected={isConnected} />
                         </div>
                     </div>
 

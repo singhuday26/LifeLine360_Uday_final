@@ -1,0 +1,47 @@
+{"environment":"development","level":"info","message":"LifeLine360 Backend Server started","mongodb":"mongodb://localhost:27017/lifeline360","mqtt":{"broker":"mqtt://broker.hivemq.com","topic":"testtopic1/shubhayusensordata"},"port":3001,"service":"lifeline360-backend","timestamp":"2025-10-30T13:46:25.642Z"}
+{"broker":"mqtt://broker.hivemq.com","error":"connack timeout","level":"error","message":"MQTT connection error","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:29.676Z"}
+{"broker":"mqtt://broker.hivemq.com","level":"warn","message":"MQTT client offline","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:29.678Z"}
+{"broker":"mqtt://broker.hivemq.com","level":"warn","message":"MQTT connection closed","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:29.678Z"}
+{"attempt":1,"broker":"mqtt://broker.hivemq.com","level":"info","maxAttempts":10,"message":"MQTT client reconnecting","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:30.685Z"}
+{"attempt":2,"level":"info","message":"Attempting MQTT reconnection","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:34.679Z"}
+{"broker":"mqtt://broker.hivemq.com","error":"connack timeout","level":"error","message":"MQTT connection error","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:34.695Z"}
+{"broker":"mqtt://broker.hivemq.com","level":"warn","message":"MQTT connection closed","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:34.696Z"}
+{"broker":"mqtt://broker.hivemq.com","level":"info","message":"Connected to MQTT broker","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:35.104Z"}
+{"level":"info","message":"Subscribed to MQTT topic","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:35.314Z","topic":"testtopic1/shubhayusensordata"}
+{"attempt":1,"broker":"mqtt://broker.hivemq.com","level":"info","maxAttempts":10,"message":"MQTT client reconnecting","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:35.701Z"}
+{"attempt":2,"level":"info","message":"Attempting MQTT reconnection","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:39.700Z"}
+{"broker":"mqtt://broker.hivemq.com","error":"connack timeout","level":"error","message":"MQTT connection error","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:39.702Z"}
+{"broker":"mqtt://broker.hivemq.com","level":"warn","message":"MQTT connection closed","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:39.703Z"}
+{"broker":"mqtt://broker.hivemq.com","level":"info","message":"Connected to MQTT broker","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:40.041Z"}
+{"level":"info","message":"Subscribed to MQTT topic","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:40.215Z","topic":"testtopic1/shubhayusensordata"}
+{"attempt":1,"broker":"mqtt://broker.hivemq.com","level":"info","maxAttempts":10,"message":"MQTT client reconnecting","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:40.708Z"}
+{"broker":"mqtt://broker.hivemq.com","error":"Connection refused: Not authorized","level":"error","message":"MQTT connection error","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:41.049Z"}
+{"broker":"mqtt://broker.hivemq.com","level":"warn","message":"MQTT connection closed","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:41.051Z"}
+{"attempt":2,"broker":"mqtt://broker.hivemq.com","level":"info","maxAttempts":10,"message":"MQTT client reconnecting","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:42.056Z"}
+{"broker":"mqtt://broker.hivemq.com","level":"info","message":"Connected to MQTT broker","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:42.786Z"}
+{"level":"info","message":"Subscribed to MQTT topic","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:42.786Z","topic":"testtopic1/shubhayusensordata"}
+{"attempt":1,"level":"info","message":"Attempting MQTT reconnection","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:44.714Z"}
+{"ip":"::1","level":"info","message":"Incoming request","method":"GET","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:44.923Z","url":"/api/stats","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"Incoming request","method":"GET","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:44.934Z","url":"/api/alerts/hotspots","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"Incoming request","method":"GET","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:44.938Z","url":"/api/sensor-data?limit=20","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"}
+{"duration":"24ms","ip":"::1","level":"info","message":"Request completed","method":"GET","service":"lifeline360-backend","status":200,"timestamp":"2025-10-30T13:46:44.948Z","url":"/api/stats"}
+{"duration":"25ms","ip":"::1","level":"info","message":"Request completed","method":"GET","service":"lifeline360-backend","status":200,"timestamp":"2025-10-30T13:46:44.958Z","url":"/api/alerts/hotspots"}
+{"duration":"21ms","ip":"::1","level":"info","message":"Request completed","method":"GET","service":"lifeline360-backend","status":200,"timestamp":"2025-10-30T13:46:44.959Z","url":"/api/sensor-data?limit=20"}
+{"broker":"mqtt://broker.hivemq.com","level":"info","message":"Connected to MQTT broker","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:45.057Z"}
+{"level":"info","message":"Subscribed to MQTT topic","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:45.229Z","topic":"testtopic1/shubhayusensordata"}
+{"attempt":1,"level":"info","message":"Attempting MQTT reconnection","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:46.064Z"}
+{"broker":"mqtt://broker.hivemq.com","error":"connack timeout","level":"error","message":"MQTT connection error","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:50.066Z"}
+{"broker":"mqtt://broker.hivemq.com","level":"warn","message":"MQTT client offline","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:50.067Z"}
+{"broker":"mqtt://broker.hivemq.com","level":"warn","message":"MQTT connection closed","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:50.067Z"}
+{"attempt":1,"broker":"mqtt://broker.hivemq.com","level":"info","maxAttempts":10,"message":"MQTT client reconnecting","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:51.079Z"}
+{"attempt":2,"level":"info","message":"Attempting MQTT reconnection","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:55.082Z"}
+{"broker":"mqtt://broker.hivemq.com","error":"connack timeout","level":"error","message":"MQTT connection error","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:55.084Z"}
+{"broker":"mqtt://broker.hivemq.com","level":"warn","message":"MQTT connection closed","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:55.085Z"}
+{"broker":"mqtt://broker.hivemq.com","level":"info","message":"Connected to MQTT broker","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:55.455Z"}
+{"level":"info","message":"Subscribed to MQTT topic","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:55.632Z","topic":"testtopic1/shubhayusensordata"}
+{"attempt":1,"broker":"mqtt://broker.hivemq.com","level":"info","maxAttempts":10,"message":"MQTT client reconnecting","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:56.096Z"}
+{"broker":"mqtt://broker.hivemq.com","level":"info","message":"Connected to MQTT broker","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:56.435Z"}
+{"level":"info","message":"Subscribed to MQTT topic","service":"lifeline360-backend","timestamp":"2025-10-30T13:46:56.435Z","topic":"testtopic1/shubhayusensordata"}
+{"attempt":1,"level":"info","message":"Attempting MQTT reconnection","service":"lifeline360-backend","timestamp":"2025-10-30T13:47:00.087Z"}
+{"broker":"mqtt://broker.hivemq.com","level":"info","message":"Connected to MQTT broker","service":"lifeline360-backend","timestamp":"2025-10-30T13:47:00.495Z"}
+{"level":"info","message":"Received SIGINT, shutting down gracefully","service":"lifeline360-backend","timestamp":"2025-10-30T13:47:00.634Z"}

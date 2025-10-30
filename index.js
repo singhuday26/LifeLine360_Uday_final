@@ -3,13 +3,41 @@ const mqtt = require('mqtt');
 const WebSocket = require('ws');
 const http = require('http');
 const mongoose = require('mongoose');
+const compression = require('compression');
+
+// Import middleware
+const logger = require('./middleware/logger');
+const { errorHandler, catchAsync, handleUnhandledRejection, handleUncaughtException } = require('./middleware/errorHandler');
+const { validate, schemas } = require('./middleware/validation');
+const {
+    securityHeaders,
+    corsOptions,
+    generalRateLimit,
+    apiRateLimit,
+    strictRateLimit,
+    sanitizeInput,
+    requestLogger
+} = require('./middleware/security');
+
+// Load environment variables
+require('dotenv').config();
 
 // Initialize Express server
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Trust proxy for rate limiting behind reverse proxy
+app.set('trust proxy', 1);
+
 // Middleware
-app.use(express.json());
+app.use(compression()); // Compress responses
+app.use(securityHeaders); // Security headers
+app.use(corsOptions); // CORS
+app.use(requestLogger); // Request logging
+app.use(sanitizeInput); // Input sanitization
+app.use(generalRateLimit); // General rate limiting
+app.use(express.json({ limit: '10mb' })); // Parse JSON with size limit
+app.use(express.urlencoded({ extended: true, limit: '10mb' })); // Parse URL-encoded data
 
 // Create HTTP server for WebSocket integration
 const server = http.createServer(app);
@@ -18,89 +46,241 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 // Store connected WebSocket clients
-const clients = new Set();
+const clients = new Map(); // Use Map to store client info
+const HEARTBEAT_INTERVAL = 30000; // 30 seconds
+const CLIENT_TIMEOUT = 60000; // 60 seconds
 
 // MQTT Configuration for HiveMQ
-const MQTT_BROKER = 'mqtt://broker.hivemq.com'; // HiveMQ public broker
-const MQTT_TOPIC = 'testtopic1/shubhayusensordata';
+const MQTT_BROKER = process.env.MQTT_BROKER || 'mqtt://broker.hivemq.com';
+const MQTT_TOPIC = process.env.MQTT_TOPIC || 'testtopic1/shubhayusensordata';
+const MQTT_USERNAME = process.env.MQTT_USERNAME;
+const MQTT_PASSWORD = process.env.MQTT_PASSWORD;
 
-// Connect to MQTT broker
-const mqttClient = mqtt.connect(MQTT_BROKER);
+// Connect to MQTT broker with retry logic
+let mqttClient;
+let mqttReconnectAttempts = 0;
+const MAX_MQTT_RECONNECT_ATTEMPTS = 10;
+const MQTT_RECONNECT_INTERVAL = 5000;
 
-mqttClient.on('connect', () => {
-    console.log('Connected to HiveMQ MQTT broker');
-
-    // Subscribe to the sensor data topic
-    mqttClient.subscribe(MQTT_TOPIC, (err) => {
-        if (!err) {
-            console.log(`Subscribed to topic: ${MQTT_TOPIC}`);
-        } else {
-            console.error('Failed to subscribe:', err);
-        }
-    });
-});
-
-mqttClient.on('message', async (topic, message) => {
+function connectMQTT() {
     try {
-        // Parse the JSON payload
-        const sensorData = JSON.parse(message.toString());
+        const options = {
+            clientId: `lifeline360-backend-${Date.now()}`,
+            clean: true,
+            connectTimeout: 4000,
+            reconnectPeriod: 1000,
+            keepalive: 60,
+        };
 
-        // Log the received JSON payload to console
-        console.log('Received sensor data:', sensorData);
-        console.log('Topic:', topic);
-        console.log('Timestamp:', new Date().toISOString());
-        console.log('---');
+        // Add authentication if provided
+        if (MQTT_USERNAME && MQTT_PASSWORD) {
+            options.username = MQTT_USERNAME;
+            options.password = MQTT_PASSWORD;
+        }
 
-        // Save sensor data to MongoDB
-        await saveSensorData(sensorData, topic);
+        mqttClient = mqtt.connect(MQTT_BROKER, options);
 
-        // Check for alert conditions and update stats/hotspots
-        await processSensorData(sensorData);
+        mqttClient.on('connect', () => {
+            logger.info('Connected to MQTT broker', { broker: MQTT_BROKER });
+            mqttReconnectAttempts = 0;
 
-        // Broadcast the sensor data to all connected WebSocket clients
-        broadcastToClients(sensorData);
+            // Subscribe to the sensor data topic
+            mqttClient.subscribe(MQTT_TOPIC, { qos: 1 }, (err) => {
+                if (!err) {
+                    logger.info('Subscribed to MQTT topic', { topic: MQTT_TOPIC });
+                } else {
+                    logger.error('Failed to subscribe to MQTT topic', { error: err.message, topic: MQTT_TOPIC });
+                }
+            });
+        });
+
+        mqttClient.on('message', async (topic, message) => {
+            try {
+                // Parse the JSON payload
+                const sensorData = JSON.parse(message.toString());
+
+                // Validate sensor data structure
+                const { error } = schemas.sensorData.validate(sensorData, { abortEarly: false });
+                if (error) {
+                    logger.warn('Invalid sensor data received', {
+                        topic,
+                        errors: error.details.map(d => d.message),
+                        rawData: message.toString()
+                    });
+                    return;
+                }
+
+                // Log the received JSON payload to console
+                logger.info('Received sensor data', {
+                    topic,
+                    sensorId: sensorData.sensorId,
+                    type: sensorData.type,
+                    value: sensorData.value
+                });
+
+                // Save sensor data to MongoDB
+                await saveSensorData(sensorData, topic);
+
+                // Check for alert conditions and update stats/hotspots
+                await processSensorData(sensorData);
+
+                // Broadcast the sensor data to all connected WebSocket clients
+                broadcastToClients(sensorData);
+
+            } catch (error) {
+                logger.error('Error processing MQTT message', {
+                    error: error.message,
+                    topic,
+                    rawMessage: message.toString()
+                });
+            }
+        });
+
+        mqttClient.on('error', (error) => {
+            logger.error('MQTT connection error', { error: error.message, broker: MQTT_BROKER });
+        });
+
+        mqttClient.on('offline', () => {
+            logger.warn('MQTT client offline', { broker: MQTT_BROKER });
+        });
+
+        mqttClient.on('reconnect', () => {
+            mqttReconnectAttempts++;
+            logger.info('MQTT client reconnecting', {
+                attempt: mqttReconnectAttempts,
+                maxAttempts: MAX_MQTT_RECONNECT_ATTEMPTS,
+                broker: MQTT_BROKER
+            });
+        });
+
+        mqttClient.on('close', () => {
+            logger.warn('MQTT connection closed', { broker: MQTT_BROKER });
+
+            // Attempt to reconnect if under max attempts
+            if (mqttReconnectAttempts < MAX_MQTT_RECONNECT_ATTEMPTS) {
+                setTimeout(() => {
+                    logger.info('Attempting MQTT reconnection', { attempt: mqttReconnectAttempts + 1 });
+                    connectMQTT();
+                }, MQTT_RECONNECT_INTERVAL);
+            } else {
+                logger.error('Max MQTT reconnection attempts reached', {
+                    maxAttempts: MAX_MQTT_RECONNECT_ATTEMPTS,
+                    broker: MQTT_BROKER
+                });
+            }
+        });
 
     } catch (error) {
-        console.error('Error parsing MQTT message:', error);
-        console.error('Raw message:', message.toString());
+        logger.error('Failed to create MQTT connection', { error: error.message, broker: MQTT_BROKER });
     }
-});
+}
 
-mqttClient.on('error', (error) => {
-    console.error('MQTT connection error:', error);
-});
+// WebSocket connection handling with heartbeat
+// WebSocket heartbeat function
+function heartbeat() {
+    this.isAlive = true;
+}
 
-mqttClient.on('offline', () => {
-    console.log('MQTT client offline');
-});
+wss.on('connection', (ws, req) => {
+    // Initialize client tracking
+    const clientId = Date.now() + Math.random();
+    const clientInfo = {
+        id: clientId,
+        ip: req.socket.remoteAddress,
+        userAgent: req.headers['user-agent'],
+        connectedAt: new Date(),
+        lastHeartbeat: new Date(),
+        isAlive: true
+    };
 
-mqttClient.on('reconnect', () => {
-    console.log('MQTT client reconnecting...');
-});
+    clients.set(ws, clientInfo);
 
-// WebSocket connection handling
-wss.on('connection', (ws) => {
-    console.log('New WebSocket client connected');
-    clients.add(ws);
-
-    // Handle client disconnection
-    ws.on('close', () => {
-        console.log('WebSocket client disconnected');
-        clients.delete(ws);
+    logger.info('New WebSocket client connected', {
+        clientId,
+        ip: clientInfo.ip,
+        totalClients: clients.size
     });
 
-    // Handle client messages (optional)
+    // Set up heartbeat
+    ws.isAlive = true;
+    ws.on('pong', heartbeat);
+
+    // Handle client disconnection
+    ws.on('close', (code, reason) => {
+        const info = clients.get(ws);
+        if (info) {
+            logger.info('WebSocket client disconnected', {
+                clientId: info.id,
+                code,
+                reason: reason.toString(),
+                connectedDuration: Date.now() - info.connectedAt.getTime(),
+                totalClients: clients.size - 1
+            });
+            clients.delete(ws);
+        }
+    });
+
+    // Handle client messages
     ws.on('message', (message) => {
-        console.log('Received message from WebSocket client:', message.toString());
+        try {
+            const data = JSON.parse(message.toString());
+            const info = clients.get(ws);
+
+            logger.debug('Received WebSocket message', {
+                clientId: info?.id,
+                messageType: data.type,
+                messageSize: message.length
+            });
+
+            // Handle ping messages for heartbeat
+            if (data.type === 'ping') {
+                ws.send(JSON.stringify({ type: 'pong', timestamp: new Date().toISOString() }));
+                if (info) info.lastHeartbeat = new Date();
+            }
+
+        } catch (error) {
+            logger.warn('Invalid WebSocket message received', {
+                clientId: clients.get(ws)?.id,
+                error: error.message,
+                rawMessage: message.toString()
+            });
+        }
+    });
+
+    // Handle errors
+    ws.on('error', (error) => {
+        const info = clients.get(ws);
+        logger.error('WebSocket client error', {
+            clientId: info?.id,
+            error: error.message
+        });
+        clients.delete(ws);
     });
 
     // Send welcome message to new client
     ws.send(JSON.stringify({
         type: 'connection',
         message: 'Connected to LifeLine360 WebSocket server',
+        clientId,
         timestamp: new Date().toISOString()
     }));
 });
+
+// WebSocket heartbeat check
+const heartbeatInterval = setInterval(() => {
+    wss.clients.forEach((ws) => {
+        const info = clients.get(ws);
+        if (!ws.isAlive) {
+            logger.warn('Terminating unresponsive WebSocket client', { clientId: info?.id });
+            clients.delete(ws);
+            return ws.terminate();
+        }
+
+        ws.isAlive = false;
+        ws.ping();
+        if (info) info.lastHeartbeat = new Date();
+    });
+}, HEARTBEAT_INTERVAL);
 
 // Function to broadcast data to all connected WebSocket clients
 function broadcastToClients(data) {
@@ -111,14 +291,32 @@ function broadcastToClients(data) {
     });
 
     let sentCount = 0;
-    clients.forEach(client => {
-        if (client.readyState === WebSocket.OPEN) {
-            client.send(message);
-            sentCount++;
+    let failedCount = 0;
+
+    clients.forEach((clientInfo, ws) => {
+        if (ws.readyState === WebSocket.OPEN) {
+            try {
+                ws.send(message);
+                sentCount++;
+            } catch (error) {
+                logger.warn('Failed to send message to WebSocket client', {
+                    clientId: clientInfo.id,
+                    error: error.message
+                });
+                failedCount++;
+                clients.delete(ws);
+            }
+        } else {
+            failedCount++;
+            clients.delete(ws);
         }
     });
 
-    console.log(`Broadcasted sensor data to ${sentCount} WebSocket clients`);
+    logger.debug('Broadcasted sensor data to WebSocket clients', {
+        sent: sentCount,
+        failed: failedCount,
+        totalClients: clients.size
+    });
 }
 
 // MongoDB Connection
@@ -411,373 +609,421 @@ app.get('/health', (req, res) => {
 });
 
 // API Endpoints for Dashboard
-app.get('/api/stats', async (req, res) => {
-    try {
-        let stats = await Stats.findOne();
-        if (!stats) {
-            // Initialize with default values if no stats exist
-            stats = new Stats({
-                activeAlerts: 12,
-                sensorsOnline: 847,
-                communityReports: 2400
-            });
-            await stats.save();
+app.get('/api/stats', catchAsync(async (req, res) => {
+    let stats = await Stats.findOne();
+    if (!stats) {
+        // Initialize with default values if no stats exist
+        stats = new Stats({
+            activeAlerts: 12,
+            sensorsOnline: 847,
+            communityReports: 2400
+        });
+        await stats.save();
+    }
+    res.json({
+        activeAlerts: stats.activeAlerts,
+        sensorsOnline: stats.sensorsOnline,
+        communityReports: stats.communityReports
+    });
+}));
+
+app.get('/api/alerts/hotspots', catchAsync(async (req, res) => {
+    // Validate query parameters
+    const { error } = schemas.hotspotQuery.validate(req.query, { abortEarly: false });
+    if (error) {
+        return res.status(400).json({
+            success: false,
+            error: {
+                message: 'Invalid query parameters',
+                details: error.details.map(d => d.message)
+            }
+        });
+    }
+
+    // Build filter object from query parameters
+    const filter = {};
+
+    // Filter by type (e.g., ?type=flood,fire)
+    if (req.query.type) {
+        const types = req.query.type.split(',').map(t => t.trim());
+        filter.type = { $in: types };
+    }
+
+    // Filter by severity (e.g., ?severity=high,critical)
+    if (req.query.severity) {
+        const severities = req.query.severity.split(',').map(s => s.trim());
+        filter.severity = { $in: severities };
+    }
+
+    // Filter by status (e.g., ?status=active,monitoring)
+    if (req.query.status) {
+        const statuses = req.query.status.split(',').map(s => s.trim());
+        filter.status = { $in: statuses };
+    }
+
+    // Filter by city/address (e.g., ?city=Delhi,Mumbai)
+    if (req.query.city) {
+        const cities = req.query.city.split(',').map(c => c.trim());
+        filter['location.address'] = {
+            $regex: new RegExp(cities.join('|'), 'i')
+        };
+    }
+
+    // Filter by date range (e.g., ?startDate=2024-01-01&endDate=2024-12-31)
+    if (req.query.startDate || req.query.endDate) {
+        filter.timestamp = {};
+        if (req.query.startDate) {
+            filter.timestamp.$gte = new Date(req.query.startDate);
         }
-        res.json({
+        if (req.query.endDate) {
+            filter.timestamp.$lte = new Date(req.query.endDate);
+        }
+    }
+
+    // Build sort object
+    let sort = { timestamp: -1 }; // Default: newest first
+    if (req.query.sort) {
+        const sortFields = req.query.sort.split(',').map(s => s.trim());
+        sort = {};
+        sortFields.forEach(field => {
+            if (field.startsWith('-')) {
+                sort[field.substring(1)] = -1; // Descending
+            } else {
+                sort[field] = 1; // Ascending
+            }
+        });
+    }
+
+    // Set limit (default 50, max 100)
+    const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+
+    // Execute query
+    let hotspots = await Hotspot.find(filter)
+        .sort(sort)
+        .limit(limit);
+
+    // If no hotspots found and no filters applied, initialize with defaults
+    if (hotspots.length === 0 && Object.keys(filter).length === 0) {
+        const defaultHotspots = [
+            {
+                id: 1,
+                type: 'flood',
+                severity: 'high',
+                location: {
+                    lat: 28.6139,
+                    lng: 77.2090,
+                    address: 'Connaught Place, New Delhi'
+                },
+                description: 'Flash flood in central Delhi area',
+                timestamp: new Date(),
+                sensors: ['rain_gauge_001', 'water_level_002'],
+                status: 'active'
+            },
+            {
+                id: 2,
+                type: 'fire',
+                severity: 'critical',
+                location: {
+                    lat: 19.0760,
+                    lng: 72.8777,
+                    address: 'Bandra West, Mumbai'
+                },
+                description: 'Building fire reported with smoke detection',
+                timestamp: new Date(Date.now() - 1800000), // 30 minutes ago
+                sensors: ['smoke_detector_005', 'temperature_003'],
+                status: 'active'
+            },
+            {
+                id: 3,
+                type: 'earthquake',
+                severity: 'medium',
+                location: {
+                    lat: 13.0827,
+                    lng: 80.2707,
+                    address: 'T. Nagar, Chennai'
+                },
+                description: 'Minor seismic activity detected',
+                timestamp: new Date(Date.now() - 3600000), // 1 hour ago
+                sensors: ['seismic_sensor_007', 'accelerometer_004'],
+                status: 'monitoring'
+            },
+            {
+                id: 4,
+                type: 'air_quality',
+                severity: 'low',
+                location: {
+                    lat: 22.5726,
+                    lng: 88.3639,
+                    address: 'Salt Lake City, Kolkata'
+                },
+                description: 'Elevated PM2.5 levels detected',
+                timestamp: new Date(Date.now() - 7200000), // 2 hours ago
+                sensors: ['air_quality_008', 'pm25_sensor_006'],
+                status: 'resolved'
+            },
+            {
+                id: 5,
+                type: 'flood',
+                severity: 'high',
+                location: {
+                    lat: 12.9716,
+                    lng: 77.5946,
+                    address: 'Whitefield, Bangalore'
+                },
+                description: 'Heavy rainfall causing water accumulation',
+                timestamp: new Date(Date.now() - 900000), // 15 minutes ago
+                sensors: ['rain_sensor_009', 'water_level_010'],
+                status: 'active'
+            }
+        ];
+        await Hotspot.insertMany(defaultHotspots);
+        hotspots = await Hotspot.find(filter)
+            .sort(sort)
+            .limit(limit);
+    }
+
+    // Add metadata to response
+    const response = {
+        data: hotspots,
+        metadata: {
+            total: hotspots.length,
+            filters: {
+                type: req.query.type || null,
+                severity: req.query.severity || null,
+                status: req.query.status || null,
+                city: req.query.city || null,
+                startDate: req.query.startDate || null,
+                endDate: req.query.endDate || null
+            },
+            sort: req.query.sort || 'timestamp:desc',
+            limit: limit
+        }
+    };
+
+    res.json(response);
+}));
+
+// GET endpoint to retrieve sensor data
+app.get('/api/sensor-data', catchAsync(async (req, res) => {
+    // Validate query parameters
+    const { error } = schemas.sensorDataQuery.validate(req.query, { abortEarly: false });
+    if (error) {
+        return res.status(400).json({
+            success: false,
+            error: {
+                message: 'Invalid query parameters',
+                details: error.details.map(d => d.message)
+            }
+        });
+    }
+
+    const limit = parseInt(req.query.limit) || 50;
+    const sensorData = await SensorData.find()
+        .sort({ timestamp: -1 })
+        .limit(limit);
+    res.json(sensorData);
+}));
+
+// POST endpoint to simulate sensor data (for testing)
+app.post('/api/test-sensor-data', apiRateLimit, validate(schemas.sensorData), catchAsync(async (req, res) => {
+    const sensorData = req.body;
+    const topic = req.body.topic || 'test/sensor/data';
+
+    logger.info('Simulating sensor data', { sensorId: sensorData.sensorId, type: sensorData.type });
+
+    // Process the sensor data as if it came from MQTT
+    await saveSensorData(sensorData, topic);
+    await processSensorData(sensorData);
+
+    // Broadcast to WebSocket clients
+    broadcastToClients(sensorData);
+
+    res.json({ message: 'Sensor data processed successfully' });
+}));
+
+// PUT endpoint to update stats
+app.put('/api/stats', apiRateLimit, validate(schemas.statsUpdate), catchAsync(async (req, res) => {
+    const { activeAlerts, sensorsOnline, communityReports } = req.body;
+
+    let stats = await Stats.findOne();
+    if (!stats) {
+        stats = new Stats({
+            activeAlerts: activeAlerts || 0,
+            sensorsOnline: sensorsOnline || 0,
+            communityReports: communityReports || 0
+        });
+    } else {
+        if (activeAlerts !== undefined) stats.activeAlerts = activeAlerts;
+        if (sensorsOnline !== undefined) stats.sensorsOnline = sensorsOnline;
+        if (communityReports !== undefined) stats.communityReports = communityReports;
+        stats.lastUpdated = new Date();
+    }
+
+    await stats.save();
+    res.json({
+        activeAlerts: stats.activeAlerts,
+        sensorsOnline: stats.sensorsOnline,
+        communityReports: stats.communityReports,
+        message: 'Stats updated successfully'
+    });
+
+    // Broadcast stats update to WebSocket clients
+    broadcastToClients({
+        type: 'stats_update',
+        data: {
             activeAlerts: stats.activeAlerts,
             sensorsOnline: stats.sensorsOnline,
             communityReports: stats.communityReports
-        });
-    } catch (error) {
-        console.error('Error fetching stats:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-app.get('/api/alerts/hotspots', async (req, res) => {
-    try {
-        // Build filter object from query parameters
-        const filter = {};
-
-        // Filter by type (e.g., ?type=flood,fire)
-        if (req.query.type) {
-            const types = req.query.type.split(',').map(t => t.trim());
-            filter.type = { $in: types };
-        }
-
-        // Filter by severity (e.g., ?severity=high,critical)
-        if (req.query.severity) {
-            const severities = req.query.severity.split(',').map(s => s.trim());
-            filter.severity = { $in: severities };
-        }
-
-        // Filter by status (e.g., ?status=active,monitoring)
-        if (req.query.status) {
-            const statuses = req.query.status.split(',').map(s => s.trim());
-            filter.status = { $in: statuses };
-        }
-
-        // Filter by city/address (e.g., ?city=Delhi,Mumbai)
-        if (req.query.city) {
-            const cities = req.query.city.split(',').map(c => c.trim());
-            filter['location.address'] = {
-                $regex: new RegExp(cities.join('|'), 'i')
-            };
-        }
-
-        // Filter by date range (e.g., ?startDate=2024-01-01&endDate=2024-12-31)
-        if (req.query.startDate || req.query.endDate) {
-            filter.timestamp = {};
-            if (req.query.startDate) {
-                filter.timestamp.$gte = new Date(req.query.startDate);
-            }
-            if (req.query.endDate) {
-                filter.timestamp.$lte = new Date(req.query.endDate);
-            }
-        }
-
-        // Build sort object
-        let sort = { timestamp: -1 }; // Default: newest first
-        if (req.query.sort) {
-            const sortFields = req.query.sort.split(',').map(s => s.trim());
-            sort = {};
-            sortFields.forEach(field => {
-                if (field.startsWith('-')) {
-                    sort[field.substring(1)] = -1; // Descending
-                } else {
-                    sort[field] = 1; // Ascending
-                }
-            });
-        }
-
-        // Set limit (default 50, max 100)
-        const limit = Math.min(parseInt(req.query.limit) || 50, 100);
-
-        // Execute query
-        let hotspots = await Hotspot.find(filter)
-            .sort(sort)
-            .limit(limit);
-
-        // If no hotspots found and no filters applied, initialize with defaults
-        if (hotspots.length === 0 && Object.keys(filter).length === 0) {
-            const defaultHotspots = [
-                {
-                    id: 1,
-                    type: 'flood',
-                    severity: 'high',
-                    location: {
-                        lat: 28.6139,
-                        lng: 77.2090,
-                        address: 'Connaught Place, New Delhi'
-                    },
-                    description: 'Flash flood in central Delhi area',
-                    timestamp: new Date(),
-                    sensors: ['rain_gauge_001', 'water_level_002'],
-                    status: 'active'
-                },
-                {
-                    id: 2,
-                    type: 'fire',
-                    severity: 'critical',
-                    location: {
-                        lat: 19.0760,
-                        lng: 72.8777,
-                        address: 'Bandra West, Mumbai'
-                    },
-                    description: 'Building fire reported with smoke detection',
-                    timestamp: new Date(Date.now() - 1800000), // 30 minutes ago
-                    sensors: ['smoke_detector_005', 'temperature_003'],
-                    status: 'active'
-                },
-                {
-                    id: 3,
-                    type: 'earthquake',
-                    severity: 'medium',
-                    location: {
-                        lat: 13.0827,
-                        lng: 80.2707,
-                        address: 'T. Nagar, Chennai'
-                    },
-                    description: 'Minor seismic activity detected',
-                    timestamp: new Date(Date.now() - 3600000), // 1 hour ago
-                    sensors: ['seismic_sensor_007', 'accelerometer_004'],
-                    status: 'monitoring'
-                },
-                {
-                    id: 4,
-                    type: 'air_quality',
-                    severity: 'low',
-                    location: {
-                        lat: 22.5726,
-                        lng: 88.3639,
-                        address: 'Salt Lake City, Kolkata'
-                    },
-                    description: 'Elevated PM2.5 levels detected',
-                    timestamp: new Date(Date.now() - 7200000), // 2 hours ago
-                    sensors: ['air_quality_008', 'pm25_sensor_006'],
-                    status: 'resolved'
-                },
-                {
-                    id: 5,
-                    type: 'flood',
-                    severity: 'high',
-                    location: {
-                        lat: 12.9716,
-                        lng: 77.5946,
-                        address: 'Whitefield, Bangalore'
-                    },
-                    description: 'Heavy rainfall causing water accumulation',
-                    timestamp: new Date(Date.now() - 900000), // 15 minutes ago
-                    sensors: ['rain_sensor_009', 'water_level_010'],
-                    status: 'active'
-                }
-            ];
-            await Hotspot.insertMany(defaultHotspots);
-            hotspots = await Hotspot.find(filter)
-                .sort(sort)
-                .limit(limit);
-        }
-
-        // Add metadata to response
-        const response = {
-            data: hotspots,
-            metadata: {
-                total: hotspots.length,
-                filters: {
-                    type: req.query.type || null,
-                    severity: req.query.severity || null,
-                    status: req.query.status || null,
-                    city: req.query.city || null,
-                    startDate: req.query.startDate || null,
-                    endDate: req.query.endDate || null
-                },
-                sort: req.query.sort || 'timestamp:desc',
-                limit: limit
-            }
-        };
-
-        res.json(response);
-    } catch (error) {
-        console.error('Error fetching hotspots:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-// GET endpoint to retrieve sensor data
-app.get('/api/sensor-data', async (req, res) => {
-    try {
-        const limit = parseInt(req.query.limit) || 50;
-        const sensorData = await SensorData.find()
-            .sort({ timestamp: -1 })
-            .limit(limit);
-        res.json(sensorData);
-    } catch (error) {
-        console.error('Error fetching sensor data:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-// POST endpoint to simulate sensor data (for testing)
-app.post('/api/test-sensor-data', async (req, res) => {
-    try {
-        const sensorData = req.body;
-        const topic = req.body.topic || 'test/sensor/data';
-
-        console.log('Simulating sensor data:', sensorData);
-
-        // Process the sensor data as if it came from MQTT
-        await saveSensorData(sensorData, topic);
-        await processSensorData(sensorData);
-
-        // Broadcast to WebSocket clients
-        broadcastToClients(sensorData);
-
-        res.json({ message: 'Sensor data processed successfully' });
-    } catch (error) {
-        console.error('Error processing test sensor data:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-// PUT endpoint to update stats
-app.put('/api/stats', async (req, res) => {
-    try {
-        const { activeAlerts, sensorsOnline, communityReports } = req.body;
-
-        // Validate input
-        if (activeAlerts !== undefined && (typeof activeAlerts !== 'number' || activeAlerts < 0)) {
-            return res.status(400).json({ error: 'activeAlerts must be a non-negative number' });
-        }
-        if (sensorsOnline !== undefined && (typeof sensorsOnline !== 'number' || sensorsOnline < 0)) {
-            return res.status(400).json({ error: 'sensorsOnline must be a non-negative number' });
-        }
-        if (communityReports !== undefined && (typeof communityReports !== 'number' || communityReports < 0)) {
-            return res.status(400).json({ error: 'communityReports must be a non-negative number' });
-        }
-
-        let stats = await Stats.findOne();
-        if (!stats) {
-            stats = new Stats({
-                activeAlerts: activeAlerts || 0,
-                sensorsOnline: sensorsOnline || 0,
-                communityReports: communityReports || 0
-            });
-        } else {
-            if (activeAlerts !== undefined) stats.activeAlerts = activeAlerts;
-            if (sensorsOnline !== undefined) stats.sensorsOnline = sensorsOnline;
-            if (communityReports !== undefined) stats.communityReports = communityReports;
-            stats.lastUpdated = new Date();
-        }
-
-        await stats.save();
-        res.json({
-            activeAlerts: stats.activeAlerts,
-            sensorsOnline: stats.sensorsOnline,
-            communityReports: stats.communityReports,
-            message: 'Stats updated successfully'
-        });
-
-        // Broadcast stats update to WebSocket clients
-        broadcastToClients({
-            type: 'stats_update',
-            data: {
-                activeAlerts: stats.activeAlerts,
-                sensorsOnline: stats.sensorsOnline,
-                communityReports: stats.communityReports
-            },
-            timestamp: new Date().toISOString()
-        });
-    } catch (error) {
-        console.error('Error updating stats:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
+        },
+        timestamp: new Date().toISOString()
+    });
+}));
 
 // POST endpoint to create new hotspot
-app.post('/api/alerts/hotspots', async (req, res) => {
-    try {
-        const { type, severity, location, description, sensors, status } = req.body;
+app.post('/api/alerts/hotspots', apiRateLimit, validate(schemas.hotspot), catchAsync(async (req, res) => {
+    const { type, severity, location, description, sensors, status } = req.body;
 
-        // Validate required fields
-        if (!type || !severity || !location || !description || !status) {
-            return res.status(400).json({ error: 'Missing required fields: type, severity, location, description, status' });
-        }
+    // Generate new ID (find max existing ID and increment)
+    const maxHotspot = await Hotspot.findOne().sort({ id: -1 });
+    const newId = maxHotspot ? maxHotspot.id + 1 : 1;
 
-        // Validate location structure
-        if (!location.lat || !location.lng || !location.address) {
-            return res.status(400).json({ error: 'Location must include lat, lng, and address' });
-        }
+    const newHotspot = new Hotspot({
+        id: newId,
+        type,
+        severity,
+        location,
+        description,
+        sensors: sensors || [],
+        status,
+        timestamp: new Date()
+    });
 
-        // Generate new ID (find max existing ID and increment)
-        const maxHotspot = await Hotspot.findOne().sort({ id: -1 });
-        const newId = maxHotspot ? maxHotspot.id + 1 : 1;
+    await newHotspot.save();
 
-        const newHotspot = new Hotspot({
-            id: newId,
-            type,
-            severity,
-            location,
-            description,
-            sensors: sensors || [],
-            status,
-            timestamp: new Date()
-        });
+    logger.info('Created new hotspot', { id: newId, type, severity });
 
-        await newHotspot.save();
-        res.status(201).json({
-            ...newHotspot.toObject(),
-            message: 'Hotspot created successfully'
-        });
-    } catch (error) {
-        console.error('Error creating hotspot:', error);
-        if (error.code === 11000) { // Duplicate key error
-            res.status(400).json({ error: 'Hotspot ID already exists' });
-        } else {
-            res.status(500).json({ error: 'Internal server error' });
-        }
-    }
-});
+    res.status(201).json({
+        ...newHotspot.toObject(),
+        message: 'Hotspot created successfully'
+    });
+
+    // Broadcast the new hotspot to WebSocket clients
+    broadcastToClients({
+        type: 'new_hotspot',
+        hotspot: newHotspot.toObject()
+    });
+}));
 
 // PUT endpoint to update existing hotspot
-app.put('/api/alerts/hotspots/:id', async (req, res) => {
-    try {
-        const hotspotId = parseInt(req.params.id);
-        const updateData = req.body;
-
-        // Remove id from updateData to prevent changing the ID
-        delete updateData.id;
-
-        // Validate location if provided
-        if (updateData.location) {
-            if (!updateData.location.lat || !updateData.location.lng || !updateData.location.address) {
-                return res.status(400).json({ error: 'Location must include lat, lng, and address' });
-            }
-        }
-
-        const updatedHotspot = await Hotspot.findOneAndUpdate(
-            { id: hotspotId },
-            { ...updateData, lastUpdated: new Date() },
-            { new: true, runValidators: true }
-        );
-
-        if (!updatedHotspot) {
-            return res.status(404).json({ error: 'Hotspot not found' });
-        }
-
-        res.json({
-            ...updatedHotspot.toObject(),
-            message: 'Hotspot updated successfully'
-        });
-    } catch (error) {
-        console.error('Error updating hotspot:', error);
-        res.status(500).json({ error: 'Internal server error' });
+app.put('/api/alerts/hotspots/:id', apiRateLimit, catchAsync(async (req, res) => {
+    const hotspotId = parseInt(req.params.id);
+    if (isNaN(hotspotId)) {
+        return res.status(400).json({ error: 'Invalid hotspot ID' });
     }
+
+    const updateData = req.body;
+
+    // Remove id from updateData to prevent changing the ID
+    delete updateData.id;
+
+    // Validate location if provided
+    if (updateData.location) {
+        if (!updateData.location.lat || !updateData.location.lng || !updateData.location.address) {
+            return res.status(400).json({ error: 'Location must include lat, lng, and address' });
+        }
+    }
+
+    const updatedHotspot = await Hotspot.findOneAndUpdate(
+        { id: hotspotId },
+        { ...updateData, lastUpdated: new Date() },
+        { new: true, runValidators: true }
+    );
+
+    if (!updatedHotspot) {
+        return res.status(404).json({ error: 'Hotspot not found' });
+    }
+
+    logger.info('Updated hotspot', { id: hotspotId, status: updatedHotspot.status });
+
+    res.json({
+        ...updatedHotspot.toObject(),
+        message: 'Hotspot updated successfully'
+    });
+}));
+
+// Apply error handling middleware (must be last)
+app.use(errorHandler);
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (err, promise) => {
+    logger.error('Unhandled Promise Rejection', { error: err.message, stack: err.stack });
+    // Close server & exit process
+    server.close(() => {
+        process.exit(1);
+    });
 });
 
-// Start the server
+// Handle uncaught exceptions
+process.on('uncaughtException', (err) => {
+    logger.error('Uncaught Exception', { error: err.message, stack: err.stack });
+    process.exit(1);
+});
+
+// Graceful shutdown
+const gracefulShutdown = (signal) => {
+    logger.info(`Received ${signal}, shutting down gracefully`);
+
+    // Stop accepting new connections
+    server.close((err) => {
+        if (err) {
+            logger.error('Error during server shutdown', { error: err.message });
+            process.exit(1);
+        }
+
+        logger.info('Server closed successfully');
+
+        // Close MQTT connection
+        if (mqttClient) {
+            mqttClient.end(false, () => {
+                logger.info('MQTT connection closed');
+            });
+        }
+
+        // Close MongoDB connection
+        mongoose.connection.close(() => {
+            logger.info('MongoDB connection closed');
+            process.exit(0);
+        });
+
+        // Force close after 10 seconds
+        setTimeout(() => {
+            logger.error('Forced shutdown after timeout');
+            process.exit(1);
+        }, 10000);
+    });
+
+    // Clear heartbeat interval
+    if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+    }
+};
+
+// Handle shutdown signals
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Start the server and initialize connections
 server.listen(PORT, () => {
-    console.log(`LifeLine360 Backend Server running on port ${PORT}`);
-    console.log(`MQTT Broker: ${MQTT_BROKER}`);
-    console.log(`Subscribed Topic: ${MQTT_TOPIC}`);
-    console.log(`WebSocket server ready for connections`);
+    logger.info('LifeLine360 Backend Server started', {
+        port: PORT,
+        environment: process.env.NODE_ENV || 'development',
+        mongodb: 'mongodb://localhost:27017/lifeline360',
+        mqtt: {
+            broker: MQTT_BROKER,
+            topic: MQTT_TOPIC
+        }
+    });
+
+    // Initialize MQTT connection
+    connectMQTT();
 });
