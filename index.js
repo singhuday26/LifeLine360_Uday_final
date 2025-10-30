@@ -22,6 +22,27 @@ const {
 // Load environment variables
 require('dotenv').config();
 
+// Email service configuration
+const nodemailer = require('nodemailer');
+
+// Create email transporter
+const emailTransporter = nodemailer.createTransport({
+    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+    port: process.env.EMAIL_PORT || 587,
+    secure: false, // true for 465, false for other ports
+    auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+    },
+    tls: {
+        rejectUnauthorized: false // For testing - remove in production
+    }
+});
+
+// Email configuration
+const EMAIL_FROM = process.env.EMAIL_FROM || 'lifeline360.alerts@gmail.com';
+const ALERT_RECIPIENTS = (process.env.ALERT_RECIPIENTS || 'admin@lifeline360.com').split(',').map(email => email.trim());
+
 // Initialize Express server
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -375,6 +396,32 @@ const sensorDataSchema = new mongoose.Schema({
 
 const SensorData = mongoose.model('SensorData', sensorDataSchema);
 
+// Alert Schema for tracking triggered alerts
+const alertSchema = new mongoose.Schema({
+    sensorId: { type: String, required: true },
+    sensorType: { type: String, required: true },
+    value: { type: mongoose.Schema.Types.Mixed, required: true },
+    threshold: { type: Number, required: true },
+    severity: { type: String, enum: ['low', 'medium', 'high', 'critical'], required: true },
+    message: { type: String, required: true },
+    location: {
+        lat: { type: Number },
+        lng: { type: Number },
+        address: { type: String }
+    },
+    emailSent: { type: Boolean, default: false },
+    emailRecipients: [{ type: String }],
+    emailSentAt: { type: Date },
+    acknowledged: { type: Boolean, default: false },
+    acknowledgedAt: { type: Date },
+    acknowledgedBy: { type: String },
+    timestamp: { type: Date, default: Date.now },
+    resolved: { type: Boolean, default: false },
+    resolvedAt: { type: Date }
+});
+
+const Alert = mongoose.model('Alert', alertSchema);
+
 // Function to save sensor data to MongoDB
 async function saveSensorData(sensorData, topic) {
     try {
@@ -456,39 +503,285 @@ async function updateSensorsOnline() {
 }
 
 // Function to check for alert conditions
-function checkForAlertConditions(sensorData) {
-    const { type, value } = sensorData;
+async function checkForAlertConditions(sensorData) {
+    const { type, value, sensorId, location } = sensorData;
 
     // Define alert thresholds
     const thresholds = {
-        temperature: { critical: 50, warning: 40 }, // °C
-        rainfall: { critical: 100, warning: 50 }, // mm
-        seismic: { critical: 5.0, warning: 3.0 }, // magnitude
-        smoke: { critical: 80, warning: 50 }, // %
-        flood: { critical: 5.0, warning: 3.0 }, // meters
-        air_quality: { critical: 300, warning: 150 } // PM2.5
+        temperature: { critical: 50, warning: 40, low: 35 }, // °C
+        rainfall: { critical: 100, warning: 50, low: 25 }, // mm
+        seismic: { critical: 5.0, warning: 3.0, low: 2.0 }, // magnitude
+        smoke: { critical: 80, warning: 50, low: 30 }, // %
+        flood: { critical: 5.0, warning: 3.0, low: 2.0 }, // meters
+        air_quality: { critical: 300, warning: 150, low: 100 } // PM2.5
     };
 
     if (thresholds[type]) {
         const threshold = thresholds[type];
-        if (value >= threshold.critical) {
+        let severity = null;
+        let thresholdValue = null;
+
+        if (typeof value === 'number') {
+            if (value >= threshold.critical) {
+                severity = 'critical';
+                thresholdValue = threshold.critical;
+            } else if (value >= threshold.warning) {
+                severity = 'high';
+                thresholdValue = threshold.warning;
+            } else if (value >= threshold.low) {
+                severity = 'medium';
+                thresholdValue = threshold.low;
+            }
+        }
+
+        if (severity) {
+            // Create alert record
+            const alert = new Alert({
+                sensorId: sensorId || sensorData.id || 'unknown',
+                sensorType: type,
+                value: value,
+                threshold: thresholdValue,
+                severity: severity,
+                message: `${type.toUpperCase()} ALERT: ${value} exceeds threshold of ${thresholdValue}`,
+                location: location,
+                emailRecipients: ALERT_RECIPIENTS
+            });
+
+            await alert.save();
+
+            // Send email alert
+            await sendAlertEmail(alert);
+
+            logger.warn('Alert triggered', {
+                sensorId: alert.sensorId,
+                type: alert.sensorType,
+                value: alert.value,
+                severity: alert.severity,
+                threshold: alert.threshold
+            });
+
             return {
-                severity: 'critical',
-                createHotspot: true,
+                severity: severity,
+                createHotspot: severity === 'critical' || severity === 'high',
                 type: type,
-                description: `${type} levels critically high: ${value}`
-            };
-        } else if (value >= threshold.warning) {
-            return {
-                severity: 'high',
-                createHotspot: true,
-                type: type,
-                description: `${type} levels elevated: ${value}`
+                description: alert.message,
+                alertId: alert._id
             };
         }
     }
 
     return null;
+}
+
+// Function to send alert email
+async function sendAlertEmail(alert) {
+    try {
+        if (!alert.emailRecipients || alert.emailRecipients.length === 0) {
+            logger.warn('No email recipients configured for alert', { alertId: alert._id });
+            return;
+        }
+
+        const locationInfo = alert.location ?
+            `\nLocation: ${alert.location.address || 'Unknown'} (${alert.location.lat}, ${alert.location.lng})` :
+            '\nLocation: Not available';
+
+        const emailHtml = `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2 style="color: #dc3545;">🚨 LifeLine360 Alert Notification</h2>
+                <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
+                    <h3 style="color: #${alert.severity === 'critical' ? 'dc3545' : alert.severity === 'high' ? 'fd7e14' : 'ffc107'}; margin-top: 0;">
+                        ${alert.severity.toUpperCase()} ALERT
+                    </h3>
+                    <p><strong>Sensor ID:</strong> ${alert.sensorId}</p>
+                    <p><strong>Sensor Type:</strong> ${alert.sensorType}</p>
+                    <p><strong>Current Value:</strong> ${alert.value}</p>
+                    <p><strong>Threshold:</strong> ${alert.threshold}</p>
+                    <p><strong>Message:</strong> ${alert.message}</p>
+                    <p><strong>Time:</strong> ${alert.timestamp.toLocaleString()}</p>
+                    ${locationInfo ? `<p><strong>Location:</strong> ${alert.location.address || 'Unknown'}</p>` : ''}
+                </div>
+                <div style="background-color: #e9ecef; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                    <p style="margin: 0;"><strong>Action Required:</strong> Please review the situation and take appropriate measures.</p>
+                </div>
+                <p style="color: #6c757d; font-size: 12px;">
+                    This is an automated alert from LifeLine360 Disaster Management System.
+                </p>
+            </div>
+        `;
+
+        const mailOptions = {
+            from: EMAIL_FROM,
+            to: alert.emailRecipients.join(','),
+            subject: `🚨 LifeLine360 ${alert.severity.toUpperCase()} ALERT: ${alert.sensorType} - ${alert.value}`,
+            html: emailHtml
+        };
+
+        const info = await emailTransporter.sendMail(mailOptions);
+
+        // Update alert record
+        alert.emailSent = true;
+        alert.emailSentAt = new Date();
+        await alert.save();
+
+        logger.info('Alert email sent successfully', {
+            alertId: alert._id,
+            messageId: info.messageId,
+            recipients: alert.emailRecipients.length
+        });
+
+    } catch (error) {
+        logger.error('Failed to send alert email', {
+            alertId: alert._id,
+            error: error.message,
+            stack: error.stack
+        });
+
+        // Mark email as failed but don't throw
+        try {
+            alert.emailSent = false;
+            await alert.save();
+        } catch (saveError) {
+            logger.error('Failed to update alert email status', { error: saveError.message });
+        }
+    }
+}
+
+// Sample data generator configuration
+const SAMPLE_DATA_CONFIG = {
+    enabled: process.env.USE_SAMPLE_DATA === 'true' || !process.env.MQTT_BROKER,
+    interval: parseInt(process.env.SAMPLE_DATA_INTERVAL) || 30000, // 30 seconds
+    sensors: [
+        { id: 'temp_sensor_001', type: 'temperature', location: { lat: 28.6139, lng: 77.2090, address: 'Connaught Place, New Delhi' } },
+        { id: 'rain_sensor_002', type: 'rainfall', location: { lat: 19.0760, lng: 72.8777, address: 'Bandra West, Mumbai' } },
+        { id: 'seismic_sensor_003', type: 'seismic', location: { lat: 13.0827, lng: 80.2707, address: 'T. Nagar, Chennai' } },
+        { id: 'smoke_sensor_004', type: 'smoke', location: { lat: 22.5726, lng: 88.3639, address: 'Salt Lake City, Kolkata' } },
+        { id: 'flood_sensor_005', type: 'flood', location: { lat: 12.9716, lng: 77.5946, address: 'Whitefield, Bangalore' } },
+        { id: 'air_quality_sensor_006', type: 'air_quality', location: { lat: 28.6139, lng: 77.2090, address: 'Karol Bagh, New Delhi' } }
+    ]
+};
+
+// Function to generate sample sensor data
+function generateSampleData() {
+    const sensor = SAMPLE_DATA_CONFIG.sensors[Math.floor(Math.random() * SAMPLE_DATA_CONFIG.sensors.length)];
+
+    let value;
+    let unit;
+
+    // Generate realistic values with occasional alerts
+    switch (sensor.type) {
+        case 'temperature':
+            // Normal: 20-35°C, Alert: 35-60°C
+            value = Math.random() < 0.8 ? 20 + Math.random() * 15 : 35 + Math.random() * 25;
+            unit = '°C';
+            break;
+        case 'rainfall':
+            // Normal: 0-20mm, Alert: 20-150mm
+            value = Math.random() < 0.7 ? Math.random() * 20 : 20 + Math.random() * 130;
+            unit = 'mm';
+            break;
+        case 'seismic':
+            // Normal: 0-2.0, Alert: 2.0-7.0
+            value = Math.random() < 0.9 ? Math.random() * 2 : 2 + Math.random() * 5;
+            unit = 'magnitude';
+            break;
+        case 'smoke':
+            // Normal: 0-30%, Alert: 30-100%
+            value = Math.random() < 0.75 ? Math.random() * 30 : 30 + Math.random() * 70;
+            unit = '%';
+            break;
+        case 'flood':
+            // Normal: 0-2m, Alert: 2-8m
+            value = Math.random() < 0.8 ? Math.random() * 2 : 2 + Math.random() * 6;
+            unit = 'm';
+            break;
+        case 'air_quality':
+            // Normal: 0-100, Alert: 100-400
+            value = Math.random() < 0.7 ? Math.random() * 100 : 100 + Math.random() * 300;
+            unit = 'PM2.5';
+            break;
+        default:
+            value = Math.random() * 100;
+            unit = 'units';
+    }
+
+    return {
+        sensorId: sensor.id,
+        id: sensor.id,
+        type: sensor.type,
+        value: Math.round(value * 100) / 100, // Round to 2 decimal places
+        unit: unit,
+        location: sensor.location,
+        timestamp: new Date()
+    };
+}
+
+// Function to start sample data generation
+function startSampleDataGeneration() {
+    if (!SAMPLE_DATA_CONFIG.enabled) {
+        logger.info('Sample data generation disabled');
+        return;
+    }
+
+    logger.info('Starting sample data generation', {
+        interval: SAMPLE_DATA_CONFIG.interval,
+        sensorCount: SAMPLE_DATA_CONFIG.sensors.length
+    });
+
+    // Generate initial data
+    setTimeout(async () => {
+        try {
+            const sampleData = generateSampleData();
+            await processSampleData(sampleData);
+        } catch (error) {
+            logger.error('Error processing initial sample data', { error: error.message });
+        }
+    }, 2000); // Start after 2 seconds
+
+    // Set up interval for continuous data generation
+    const sampleInterval = setInterval(async () => {
+        try {
+            const sampleData = generateSampleData();
+            await processSampleData(sampleData);
+        } catch (error) {
+            logger.error('Error processing sample data', { error: error.message });
+        }
+    }, SAMPLE_DATA_CONFIG.interval);
+
+    // Store interval reference for cleanup
+    global.sampleDataInterval = sampleInterval;
+}
+
+// Function to process sample data (similar to MQTT message processing)
+async function processSampleData(sensorData) {
+    try {
+        const topic = `sample/${sensorData.type}/${sensorData.sensorId}`;
+
+        logger.debug('Processing sample sensor data', {
+            sensorId: sensorData.sensorId,
+            type: sensorData.type,
+            value: sensorData.value
+        });
+
+        // Save to database
+        await saveSensorData(sensorData, topic);
+
+        // Process sensor data (check alerts, update stats, etc.)
+        await processSensorData(sensorData);
+
+        // Broadcast to WebSocket clients
+        broadcastToClients({
+            type: 'sensor_data',
+            data: sensorData,
+            source: 'sample'
+        });
+
+    } catch (error) {
+        logger.error('Error processing sample data', {
+            sensorId: sensorData.sensorId,
+            error: error.message,
+            stack: error.stack
+        });
+    }
 }
 
 // Function to increment active alerts
@@ -951,6 +1244,165 @@ app.put('/api/alerts/hotspots/:id', apiRateLimit, catchAsync(async (req, res) =>
     });
 }));
 
+// GET endpoint to retrieve alerts
+app.get('/api/alerts', catchAsync(async (req, res) => {
+    const limit = parseInt(req.query.limit) || 50;
+    const status = req.query.status; // 'active', 'acknowledged', 'resolved'
+    const severity = req.query.severity; // 'low', 'medium', 'high', 'critical'
+
+    let filter = {};
+    if (status) {
+        if (status === 'active') {
+            filter.acknowledged = false;
+            filter.resolved = false;
+        } else if (status === 'acknowledged') {
+            filter.acknowledged = true;
+            filter.resolved = false;
+        } else if (status === 'resolved') {
+            filter.resolved = true;
+        }
+    }
+
+    if (severity) {
+        filter.severity = severity;
+    }
+
+    const alerts = await Alert.find(filter)
+        .sort({ timestamp: -1 })
+        .limit(limit)
+        .populate('acknowledgedBy', 'name email');
+
+    res.json({
+        data: alerts,
+        metadata: {
+            total: alerts.length,
+            filters: { status, severity },
+            limit
+        }
+    });
+}));
+
+// PUT endpoint to acknowledge alert
+app.put('/api/alerts/:id/acknowledge', catchAsync(async (req, res) => {
+    const alertId = req.params.id;
+    const { acknowledgedBy } = req.body;
+
+    const alert = await Alert.findByIdAndUpdate(
+        alertId,
+        {
+            acknowledged: true,
+            acknowledgedAt: new Date(),
+            acknowledgedBy: acknowledgedBy || 'system'
+        },
+        { new: true }
+    );
+
+    if (!alert) {
+        return res.status(404).json({ error: 'Alert not found' });
+    }
+
+    logger.info('Alert acknowledged', { alertId, acknowledgedBy });
+
+    res.json({
+        ...alert.toObject(),
+        message: 'Alert acknowledged successfully'
+    });
+}));
+
+// PUT endpoint to resolve alert
+app.put('/api/alerts/:id/resolve', catchAsync(async (req, res) => {
+    const alertId = req.params.id;
+
+    const alert = await Alert.findByIdAndUpdate(
+        alertId,
+        {
+            resolved: true,
+            resolvedAt: new Date()
+        },
+        { new: true }
+    );
+
+    if (!alert) {
+        return res.status(404).json({ error: 'Alert not found' });
+    }
+
+    logger.info('Alert resolved', { alertId });
+
+    res.json({
+        ...alert.toObject(),
+        message: 'Alert resolved successfully'
+    });
+}));
+
+// GET endpoint to get alert statistics
+app.get('/api/alerts/stats', catchAsync(async (req, res) => {
+    const stats = await Alert.aggregate([
+        {
+            $group: {
+                _id: null,
+                total: { $sum: 1 },
+                active: {
+                    $sum: {
+                        $cond: [
+                            { $and: [{ $eq: ['$acknowledged', false] }, { $eq: ['$resolved', false] }] },
+                            1,
+                            0
+                        ]
+                    }
+                },
+                acknowledged: {
+                    $sum: {
+                        $cond: [
+                            { $and: [{ $eq: ['$acknowledged', true] }, { $eq: ['$resolved', false] }] },
+                            1,
+                            0
+                        ]
+                    }
+                },
+                resolved: { $sum: { $cond: ['$resolved', true, 0] } },
+                critical: { $sum: { $cond: [{ $eq: ['$severity', 'critical'] }, 1, 0] } },
+                high: { $sum: { $cond: [{ $eq: ['$severity', 'high'] }, 1, 0] } },
+                medium: { $sum: { $cond: [{ $eq: ['$severity', 'medium'] }, 1, 0] } },
+                low: { $sum: { $cond: [{ $eq: ['$severity', 'low'] }, 1, 0] } }
+            }
+        }
+    ]);
+
+    const result = stats[0] || {
+        total: 0,
+        active: 0,
+        acknowledged: 0,
+        resolved: 0,
+        critical: 0,
+        high: 0,
+        medium: 0,
+        low: 0
+    };
+
+    res.json(result);
+}));
+
+// POST endpoint to send test alert email
+app.post('/api/test-alert-email', catchAsync(async (req, res) => {
+    const testAlert = new Alert({
+        sensorId: 'test_sensor_001',
+        sensorType: 'temperature',
+        value: 55,
+        threshold: 50,
+        severity: 'critical',
+        message: 'TEST ALERT: Temperature exceeds critical threshold',
+        location: { lat: 28.6139, lng: 77.2090, address: 'Test Location, New Delhi' },
+        emailRecipients: ALERT_RECIPIENTS
+    });
+
+    await sendAlertEmail(testAlert);
+
+    res.json({
+        message: 'Test alert email sent successfully',
+        recipients: ALERT_RECIPIENTS
+    });
+}));
+
 // Apply error handling middleware (must be last)
 app.use(errorHandler);
 
@@ -1006,6 +1458,12 @@ const gracefulShutdown = (signal) => {
     if (heartbeatInterval) {
         clearInterval(heartbeatInterval);
     }
+
+    // Clear sample data interval
+    if (global.sampleDataInterval) {
+        clearInterval(global.sampleDataInterval);
+        logger.info('Sample data generation stopped');
+    }
 };
 
 // Handle shutdown signals
@@ -1018,12 +1476,17 @@ server.listen(PORT, () => {
         port: PORT,
         environment: process.env.NODE_ENV || 'development',
         mongodb: 'mongodb://localhost:27017/lifeline360',
-        mqtt: {
+        sampleData: SAMPLE_DATA_CONFIG.enabled,
+        mqtt: SAMPLE_DATA_CONFIG.enabled ? 'disabled (using sample data)' : {
             broker: MQTT_BROKER,
             topic: MQTT_TOPIC
         }
     });
 
-    // Initialize MQTT connection
-    connectMQTT();
+    // Initialize data source
+    if (SAMPLE_DATA_CONFIG.enabled) {
+        startSampleDataGeneration();
+    } else {
+        connectMQTT();
+    }
 });
