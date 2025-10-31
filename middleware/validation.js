@@ -26,10 +26,10 @@ const validate = (schema) => {
 
 // Validation schemas
 const schemas = {
-    // Sensor data validation
+    // Enhanced sensor data validation with more types
     sensorData: Joi.object({
         sensorId: Joi.string().required(),
-        type: Joi.string().valid('temperature', 'humidity', 'gasValue', 'smoke', 'pm25', 'pm10', 'waterLevel', 'rainLevel', 'isFlame', 'shake').required(),
+        type: Joi.string().valid('temperature', 'humidity', 'gasValue', 'smoke', 'pm25', 'pm10', 'waterLevel', 'rainLevel', 'isFlame', 'shake', 'rainfall', 'seismic', 'flood', 'air_quality').required(),
         value: Joi.alternatives().try(
             Joi.number(),
             Joi.string(),
@@ -41,7 +41,25 @@ const schemas = {
             lng: Joi.number().min(-180).max(180).required(),
             address: Joi.string().optional()
         }).optional(),
-        timestamp: Joi.date().optional()
+        timestamp: Joi.date().optional(),
+        topic: Joi.string().optional()
+    }),
+
+    // Push notification validation
+    pushNotification: Joi.object({
+        title: Joi.string().min(1).max(100).required(),
+        body: Joi.string().min(1).max(250).required(),
+        data: Joi.object().optional(),
+        priority: Joi.string().valid('default', 'normal', 'high').default('high'),
+        ttl: Joi.number().integer().min(0).max(86400).default(3600) // Max 24 hours
+    }),
+
+    // Email alert validation
+    emailAlert: Joi.object({
+        subject: Joi.string().min(1).max(200).required(),
+        html: Joi.string().min(1).max(10000).required(),
+        recipients: Joi.array().items(Joi.string().email()).min(1).required(),
+        priority: Joi.string().valid('low', 'normal', 'high').default('high')
     }),
 
     // Hotspot validation
@@ -80,15 +98,41 @@ const schemas = {
         limit: Joi.number().integer().min(1).max(100).optional()
     }),
 
+    // Sensor data query validation
     sensorDataQuery: Joi.object({
-        limit: Joi.number().integer().min(1).max(100).optional(),
-        sensorId: Joi.string().optional(),
+        limit: Joi.number().integer().min(1).max(1000).optional(),
         type: Joi.string().optional(),
+        sensorId: Joi.string().optional(),
         startDate: Joi.date().iso().optional(),
         endDate: Joi.date().iso().when('startDate', {
             is: Joi.exist(),
             then: Joi.date().iso().min(Joi.ref('startDate'))
         }).optional()
+    }),
+
+    // Incident report validation
+    incidentReport: Joi.object({
+        incidentType: Joi.string().valid('flood', 'fire', 'earthquake', 'storm', 'accident', 'medical', 'other').required(),
+        severity: Joi.string().valid('low', 'medium', 'high', 'critical').required(),
+        description: Joi.string().min(10).max(1000).required(),
+        location: Joi.string().min(5).max(200).required(),
+        contactName: Joi.string().min(2).max(100).optional(),
+        contactPhone: Joi.string().pattern(/^\+?[\d\s\-\(\)]+$/).optional(),
+        contactEmail: Joi.string().email().optional()
+    }).or('contactName', 'contactPhone', 'contactEmail'), // At least one contact method required
+
+    // Auth validation schemas
+    register: Joi.object({
+        email: Joi.string().email().required(),
+        password: Joi.string().min(6).required(),
+        firstName: Joi.string().required(),
+        lastName: Joi.string().required(),
+        role: Joi.string().valid('public', 'fire_admin', 'flood_admin', 'super_admin').default('public')
+    }),
+
+    login: Joi.object({
+        email: Joi.string().email().required(),
+        password: Joi.string().required()
     })
 };
 

@@ -4,6 +4,7 @@ const WebSocket = require('ws');
 const http = require('http');
 const mongoose = require('mongoose');
 const compression = require('compression');
+const { Expo } = require('expo-server-sdk');
 
 // Import middleware
 const logger = require('./middleware/logger');
@@ -19,25 +20,54 @@ const {
     requestLogger
 } = require('./middleware/security');
 
+// Import routes
+const authRoutes = require('./routes/auth');
+const adminRoutes = require('./routes/admin');
+
 // Load environment variables
 require('dotenv').config();
+
+// Validate required environment variables
+const requiredEnvVars = ['JWT_SECRET'];
+const missingEnvVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
+
+if (missingEnvVars.length > 0) {
+    console.error('Missing required environment variables:', missingEnvVars.join(', '));
+    console.error('Please set these variables in your .env file');
+    process.exit(1);
+}
 
 // Email service configuration
 const nodemailer = require('nodemailer');
 
-// Create email transporter
-const emailTransporter = nodemailer.createTransport({
-    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-    port: process.env.EMAIL_PORT || 587,
-    secure: false, // true for 465, false for other ports
-    auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-    },
-    tls: {
-        rejectUnauthorized: false // For testing - remove in production
-    }
-});
+// Create email transporter with error handling
+let emailTransporter;
+try {
+    emailTransporter = nodemailer.createTransport({
+        host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+        port: process.env.EMAIL_PORT || 587,
+        secure: false, // true for 465, false for other ports
+        auth: {
+            user: process.env.EMAIL_USER,
+            pass: process.env.EMAIL_PASS
+        },
+        tls: {
+            rejectUnauthorized: false // For testing - remove in production
+        }
+    });
+
+    // Verify email configuration
+    emailTransporter.verify((error, success) => {
+        if (error) {
+            logger.warn('Email service configuration error', { error: error.message });
+        } else {
+            logger.info('Email service is ready');
+        }
+    });
+} catch (error) {
+    logger.error('Failed to create email transporter', { error: error.message });
+    emailTransporter = null;
+}
 
 // Email configuration
 const EMAIL_FROM = process.env.EMAIL_FROM || 'lifeline360.alerts@gmail.com';
@@ -52,11 +82,11 @@ app.set('trust proxy', 1);
 
 // Middleware
 app.use(compression()); // Compress responses
-app.use(securityHeaders); // Security headers
-app.use(corsOptions); // CORS
-app.use(requestLogger); // Request logging
-app.use(sanitizeInput); // Input sanitization
-app.use(generalRateLimit); // General rate limiting
+// app.use(securityHeaders); // Security headers
+// app.use(corsOptions); // CORS
+// app.use(requestLogger); // Request logging
+// app.use(sanitizeInput); // Input sanitization
+// app.use(generalRateLimit); // General rate limiting
 app.use(express.json({ limit: '10mb' })); // Parse JSON with size limit
 app.use(express.urlencoded({ extended: true, limit: '10mb' })); // Parse URL-encoded data
 
@@ -107,10 +137,10 @@ function connectMQTT() {
 
             // Subscribe to the sensor data topic
             mqttClient.subscribe(MQTT_TOPIC, { qos: 1 }, (err) => {
-                if (!err) {
-                    logger.info('Subscribed to MQTT topic', { topic: MQTT_TOPIC });
-                } else {
+                if (err) {
                     logger.error('Failed to subscribe to MQTT topic', { error: err.message, topic: MQTT_TOPIC });
+                } else {
+                    logger.info('Subscribed to MQTT topic', { topic: MQTT_TOPIC });
                 }
             });
         });
@@ -193,6 +223,7 @@ function connectMQTT() {
 
     } catch (error) {
         logger.error('Failed to create MQTT connection', { error: error.message, broker: MQTT_BROKER });
+        // Don't exit process, just log the error and continue
     }
 }
 
@@ -340,25 +371,103 @@ function broadcastToClients(data) {
     });
 }
 
-// MongoDB Connection
+// Make broadcastToClients available to routes
+app.locals.broadcastToClients = broadcastToClients;
+
+// MongoDB Connection with proper error handling
 mongoose.connect('mongodb://localhost:27017/lifeline360', {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
+    // Remove deprecated options
 }).then(() => {
     console.log('Connected to MongoDB');
+    // Start server only after MongoDB connection is established
+    startServer();
 }).catch(err => {
     console.error('MongoDB connection error:', err);
+    logger.error('Failed to connect to MongoDB', { error: err.message });
+    process.exit(1); // Exit if database connection fails
 });
 
 // Stats Schema
-const statsSchema = new mongoose.Schema({
-    activeAlerts: { type: Number, default: 0 },
-    sensorsOnline: { type: Number, default: 0 },
-    communityReports: { type: Number, default: 0 },
-    lastUpdated: { type: Date, default: Date.now }
-});
+const Stats = require('./models/Stats');
+const Alert = require('./models/Alert');
+const IncidentReport = require('./models/IncidentReport');
+const User = require('./models/User');
 
-const Stats = mongoose.model('Stats', statsSchema);
+// Initialize Expo SDK for push notifications
+const expo = new Expo();
+
+// Function to send push notifications to admin users
+async function sendPushNotification(pushTokens, title, body) {
+    try {
+        // Create the messages that you want to send to clients
+        const messages = pushTokens
+            .filter(pushToken => Expo.isExpoPushToken(pushToken))
+            .map(pushToken => ({
+                to: pushToken,
+                sound: 'default',
+                title: title,
+                body: body,
+                data: { type: 'emergency_alert' },
+                priority: 'high',
+                ttl: 86400, // 24 hours
+            }));
+
+        if (messages.length === 0) {
+            logger.warn('No valid push tokens found for notification');
+            return;
+        }
+
+        // The Expo push notification service accepts batches of notifications so
+        // that you don't need to send 1000 requests to send 1000 notifications. We
+        // recommend you batch your notifications to reduce the number of requests
+        // and to compress them (notifications with similar content will get
+        // compressed).
+        const chunks = expo.chunkPushNotifications(messages);
+        const tickets = [];
+
+        // Send the chunks to the Expo push notification service. There are
+        // different strategies you could use. A simple one is to send one chunk at a
+        // time, which nicely spreads the load out over time:
+        for (const chunk of chunks) {
+            try {
+                const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
+                tickets.push(...ticketChunk);
+
+                logger.info('Push notification chunk sent', {
+                    chunkSize: chunk.length,
+                    ticketsReceived: ticketChunk.length
+                });
+            } catch (error) {
+                logger.error('Error sending push notification chunk', {
+                    error: error.message,
+                    chunkSize: chunk.length
+                });
+            }
+        }
+
+        // Check for any failed notifications
+        const failedTickets = tickets.filter(ticket => ticket.status === 'error');
+        if (failedTickets.length > 0) {
+            logger.warn('Some push notifications failed', {
+                failedCount: failedTickets.length,
+                totalSent: tickets.length
+            });
+        }
+
+        logger.info('Push notifications sent successfully', {
+            totalTokens: pushTokens.length,
+            validTokens: messages.length,
+            chunksSent: chunks.length,
+            ticketsReceived: tickets.length
+        });
+
+    } catch (error) {
+        logger.error('Error sending push notifications', {
+            error: error.message,
+            stack: error.stack
+        });
+    }
+}
 
 // Hotspot Schema
 const hotspotSchema = new mongoose.Schema({
@@ -396,32 +505,6 @@ const sensorDataSchema = new mongoose.Schema({
 
 const SensorData = mongoose.model('SensorData', sensorDataSchema);
 
-// Alert Schema for tracking triggered alerts
-const alertSchema = new mongoose.Schema({
-    sensorId: { type: String, required: true },
-    sensorType: { type: String, required: true },
-    value: { type: mongoose.Schema.Types.Mixed, required: true },
-    threshold: { type: Number, required: true },
-    severity: { type: String, enum: ['low', 'medium', 'high', 'critical'], required: true },
-    message: { type: String, required: true },
-    location: {
-        lat: { type: Number },
-        lng: { type: Number },
-        address: { type: String }
-    },
-    emailSent: { type: Boolean, default: false },
-    emailRecipients: [{ type: String }],
-    emailSentAt: { type: Date },
-    acknowledged: { type: Boolean, default: false },
-    acknowledgedAt: { type: Date },
-    acknowledgedBy: { type: String },
-    timestamp: { type: Date, default: Date.now },
-    resolved: { type: Boolean, default: false },
-    resolvedAt: { type: Date }
-});
-
-const Alert = mongoose.model('Alert', alertSchema);
-
 // Function to save sensor data to MongoDB
 async function saveSensorData(sensorData, topic) {
     try {
@@ -453,6 +536,48 @@ async function processSensorData(sensorData) {
 
         if (alertTriggered) {
             await incrementActiveAlerts();
+
+            // Send push notifications for critical alerts
+            if (alertTriggered.severity === 'critical') {
+                try {
+                    // Find all admin users with valid push tokens
+                    const adminUsers = await User.find({
+                        role: { $in: ['fire_admin', 'flood_admin', 'super_admin'] },
+                        pushToken: { $exists: true, $ne: null, $ne: '' }
+                    }).select('pushToken role');
+
+                    const pushTokens = adminUsers
+                        .map(user => user.pushToken)
+                        .filter(token => token && Expo.isExpoPushToken(token));
+
+                    if (pushTokens.length > 0) {
+                        const locationInfo = sensorData.location?.address || 'Unknown Location';
+                        const title = `🚨 CRITICAL ALERT: ${sensorData.type.toUpperCase()}`;
+                        const body = `${alertTriggered.description} at ${locationInfo}`;
+
+                        await sendPushNotification(pushTokens, title, body);
+
+                        logger.info('Critical alert push notifications sent', {
+                            alertType: sensorData.type,
+                            severity: alertTriggered.severity,
+                            location: locationInfo,
+                            tokensNotified: pushTokens.length,
+                            adminUsersFound: adminUsers.length
+                        });
+                    } else {
+                        logger.warn('No valid push tokens found for critical alert', {
+                            alertType: sensorData.type,
+                            adminUsersFound: adminUsers.length
+                        });
+                    }
+                } catch (pushError) {
+                    logger.error('Error sending push notifications for critical alert', {
+                        error: pushError.message,
+                        alertType: sensorData.type
+                    });
+                    // Don't fail the alert processing if push notifications fail
+                }
+            }
 
             // Create hotspot if it's a critical alert
             if (alertTriggered.createHotspot) {
@@ -576,6 +701,12 @@ async function checkForAlertConditions(sensorData) {
 // Function to send alert email
 async function sendAlertEmail(alert) {
     try {
+        // Check if email service is available
+        if (!emailTransporter) {
+            logger.warn('Email service not available, skipping alert email', { alertId: alert._id });
+            return;
+        }
+
         if (!alert.emailRecipients || alert.emailRecipients.length === 0) {
             logger.warn('No email recipients configured for alert', { alertId: alert._id });
             return;
@@ -870,6 +1001,9 @@ async function createHotspotFromSensor(sensorData, alertInfo) {
 }
 
 // Basic Express routes
+app.use('/api/auth', authRoutes);
+app.use('/api/admin', adminRoutes);
+
 app.get('/', (req, res) => {
     res.json({
         message: 'LifeLine360 Backend Server',
@@ -887,18 +1021,44 @@ app.get('/', (req, res) => {
 });
 
 app.get('/health', (req, res) => {
-    res.json({
+    const healthStatus = {
         status: 'healthy',
         timestamp: new Date().toISOString(),
-        mqtt: {
-            connected: mqttClient.connected,
-            subscriptions: mqttClient.subscriptions || []
+        uptime: process.uptime(),
+        services: {
+            mongodb: {
+                status: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+                readyState: mongoose.connection.readyState
+            },
+            mqtt: {
+                status: mqttClient && mqttClient.connected ? 'connected' : 'disconnected',
+                connected: mqttClient ? mqttClient.connected : false
+            },
+            websocket: {
+                status: 'running',
+                clients: clients.size,
+                ready: true
+            },
+            email: {
+                status: emailTransporter ? 'configured' : 'not_configured'
+            }
         },
-        websocket: {
-            clients: clients.size,
-            ready: true
+        environment: {
+            nodeVersion: process.version,
+            environment: process.env.NODE_ENV || 'development',
+            platform: process.platform
         }
-    });
+    };
+
+    // Check if all critical services are healthy
+    const criticalServicesHealthy = healthStatus.services.mongodb.status === 'connected';
+
+    if (!criticalServicesHealthy) {
+        healthStatus.status = 'unhealthy';
+        res.status(503);
+    }
+
+    res.json(healthStatus);
 });
 
 // API Endpoints for Dashboard
@@ -1134,116 +1294,6 @@ app.post('/api/test-sensor-data', apiRateLimit, validate(schemas.sensorData), ca
     res.json({ message: 'Sensor data processed successfully' });
 }));
 
-// PUT endpoint to update stats
-app.put('/api/stats', apiRateLimit, validate(schemas.statsUpdate), catchAsync(async (req, res) => {
-    const { activeAlerts, sensorsOnline, communityReports } = req.body;
-
-    let stats = await Stats.findOne();
-    if (!stats) {
-        stats = new Stats({
-            activeAlerts: activeAlerts || 0,
-            sensorsOnline: sensorsOnline || 0,
-            communityReports: communityReports || 0
-        });
-    } else {
-        if (activeAlerts !== undefined) stats.activeAlerts = activeAlerts;
-        if (sensorsOnline !== undefined) stats.sensorsOnline = sensorsOnline;
-        if (communityReports !== undefined) stats.communityReports = communityReports;
-        stats.lastUpdated = new Date();
-    }
-
-    await stats.save();
-    res.json({
-        activeAlerts: stats.activeAlerts,
-        sensorsOnline: stats.sensorsOnline,
-        communityReports: stats.communityReports,
-        message: 'Stats updated successfully'
-    });
-
-    // Broadcast stats update to WebSocket clients
-    broadcastToClients({
-        type: 'stats_update',
-        data: {
-            activeAlerts: stats.activeAlerts,
-            sensorsOnline: stats.sensorsOnline,
-            communityReports: stats.communityReports
-        },
-        timestamp: new Date().toISOString()
-    });
-}));
-
-// POST endpoint to create new hotspot
-app.post('/api/alerts/hotspots', apiRateLimit, validate(schemas.hotspot), catchAsync(async (req, res) => {
-    const { type, severity, location, description, sensors, status } = req.body;
-
-    // Generate new ID (find max existing ID and increment)
-    const maxHotspot = await Hotspot.findOne().sort({ id: -1 });
-    const newId = maxHotspot ? maxHotspot.id + 1 : 1;
-
-    const newHotspot = new Hotspot({
-        id: newId,
-        type,
-        severity,
-        location,
-        description,
-        sensors: sensors || [],
-        status,
-        timestamp: new Date()
-    });
-
-    await newHotspot.save();
-
-    logger.info('Created new hotspot', { id: newId, type, severity });
-
-    res.status(201).json({
-        ...newHotspot.toObject(),
-        message: 'Hotspot created successfully'
-    });
-
-    // Broadcast the new hotspot to WebSocket clients
-    broadcastToClients({
-        type: 'new_hotspot',
-        hotspot: newHotspot.toObject()
-    });
-}));
-
-// PUT endpoint to update existing hotspot
-app.put('/api/alerts/hotspots/:id', apiRateLimit, catchAsync(async (req, res) => {
-    const hotspotId = parseInt(req.params.id);
-    if (isNaN(hotspotId)) {
-        return res.status(400).json({ error: 'Invalid hotspot ID' });
-    }
-
-    const updateData = req.body;
-
-    // Remove id from updateData to prevent changing the ID
-    delete updateData.id;
-
-    // Validate location if provided
-    if (updateData.location) {
-        if (!updateData.location.lat || !updateData.location.lng || !updateData.location.address) {
-            return res.status(400).json({ error: 'Location must include lat, lng, and address' });
-        }
-    }
-
-    const updatedHotspot = await Hotspot.findOneAndUpdate(
-        { id: hotspotId },
-        { ...updateData, lastUpdated: new Date() },
-        { new: true, runValidators: true }
-    );
-
-    if (!updatedHotspot) {
-        return res.status(404).json({ error: 'Hotspot not found' });
-    }
-
-    logger.info('Updated hotspot', { id: hotspotId, status: updatedHotspot.status });
-
-    res.json({
-        ...updatedHotspot.toObject(),
-        message: 'Hotspot updated successfully'
-    });
-}));
-
 // GET endpoint to retrieve alerts
 app.get('/api/alerts', catchAsync(async (req, res) => {
     const limit = parseInt(req.query.limit) || 50;
@@ -1279,58 +1329,6 @@ app.get('/api/alerts', catchAsync(async (req, res) => {
             filters: { status, severity },
             limit
         }
-    });
-}));
-
-// PUT endpoint to acknowledge alert
-app.put('/api/alerts/:id/acknowledge', catchAsync(async (req, res) => {
-    const alertId = req.params.id;
-    const { acknowledgedBy } = req.body;
-
-    const alert = await Alert.findByIdAndUpdate(
-        alertId,
-        {
-            acknowledged: true,
-            acknowledgedAt: new Date(),
-            acknowledgedBy: acknowledgedBy || 'system'
-        },
-        { new: true }
-    );
-
-    if (!alert) {
-        return res.status(404).json({ error: 'Alert not found' });
-    }
-
-    logger.info('Alert acknowledged', { alertId, acknowledgedBy });
-
-    res.json({
-        ...alert.toObject(),
-        message: 'Alert acknowledged successfully'
-    });
-}));
-
-// PUT endpoint to resolve alert
-app.put('/api/alerts/:id/resolve', catchAsync(async (req, res) => {
-    const alertId = req.params.id;
-
-    const alert = await Alert.findByIdAndUpdate(
-        alertId,
-        {
-            resolved: true,
-            resolvedAt: new Date()
-        },
-        { new: true }
-    );
-
-    if (!alert) {
-        return res.status(404).json({ error: 'Alert not found' });
-    }
-
-    logger.info('Alert resolved', { alertId });
-
-    res.json({
-        ...alert.toObject(),
-        message: 'Alert resolved successfully'
     });
 }));
 
@@ -1403,6 +1401,86 @@ app.post('/api/test-alert-email', catchAsync(async (req, res) => {
     });
 }));
 
+// POST endpoint to submit incident reports
+app.post('/api/incident-reports', apiRateLimit, validate(schemas.incidentReport), catchAsync(async (req, res) => {
+    const reportData = {
+        ...req.body,
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent')
+    };
+
+    const incidentReport = new IncidentReport(reportData);
+    await incidentReport.save();
+
+    // Increment community reports count
+    let stats = await Stats.findOne();
+    if (!stats) {
+        stats = new Stats({ communityReports: 1 });
+    } else {
+        stats.communityReports += 1;
+        stats.lastUpdated = new Date();
+    }
+    await stats.save();
+
+    logger.info('Incident report submitted', {
+        id: incidentReport._id,
+        type: incidentReport.incidentType,
+        severity: incidentReport.severity,
+        location: incidentReport.location
+    });
+
+    // Send notification email to emergency services
+    try {
+        const emergencyEmailHtml = `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2 style="color: #dc3545;">🚨 New Community Incident Report</h2>
+                <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
+                    <h3 style="color: #${incidentReport.severity === 'critical' ? 'dc3545' : incidentReport.severity === 'high' ? 'fd7e14' : 'ffc107'}; margin-top: 0;">
+                        ${incidentReport.severity.toUpperCase()} INCIDENT REPORT
+                    </h3>
+                    <p><strong>Type:</strong> ${incidentReport.incidentType.toUpperCase()}</p>
+                    <p><strong>Description:</strong> ${incidentReport.description}</p>
+                    <p><strong>Location:</strong> ${incidentReport.location}</p>
+                    <p><strong>Reported at:</strong> ${incidentReport.timestamp.toLocaleString()}</p>
+                    ${incidentReport.contactName ? `<p><strong>Contact Name:</strong> ${incidentReport.contactName}</p>` : ''}
+                    ${incidentReport.contactPhone ? `<p><strong>Phone:</strong> ${incidentReport.contactPhone}</p>` : ''}
+                    ${incidentReport.contactEmail ? `<p><strong>Email:</strong> ${incidentReport.contactEmail}</p>` : ''}
+                </div>
+                <div style="background-color: #e9ecef; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                    <p style="margin: 0;"><strong>Action Required:</strong> Please review and dispatch appropriate emergency response team.</p>
+                </div>
+                <p style="color: #6c757d; font-size: 12px;">
+                    This report was submitted through the LifeLine360 Community Reporting System.
+                </p>
+            </div>
+        `;
+
+        const emergencyMailOptions = {
+            from: EMAIL_FROM,
+            to: ALERT_RECIPIENTS.join(','),
+            subject: `🚨 ${incidentReport.severity.toUpperCase()} Community Report: ${incidentReport.incidentType} - ${incidentReport.location}`,
+            html: emergencyEmailHtml
+        };
+
+        await emailTransporter.sendMail(emergencyMailOptions);
+        logger.info('Emergency notification email sent for incident report', { reportId: incidentReport._id });
+
+    } catch (emailError) {
+        logger.error('Failed to send emergency notification email', {
+            reportId: incidentReport._id,
+            error: emailError.message
+        });
+        // Don't fail the request if email fails
+    }
+
+    res.status(201).json({
+        success: true,
+        message: 'Incident report submitted successfully',
+        reportId: incidentReport._id,
+        status: incidentReport.status
+    });
+}));
+
 // Apply error handling middleware (must be last)
 app.use(errorHandler);
 
@@ -1442,9 +1520,12 @@ const gracefulShutdown = (signal) => {
         }
 
         // Close MongoDB connection
-        mongoose.connection.close(() => {
+        mongoose.connection.close().then(() => {
             logger.info('MongoDB connection closed');
             process.exit(0);
+        }).catch((err) => {
+            logger.error('Error closing MongoDB connection', { error: err.message });
+            process.exit(1);
         });
 
         // Force close after 10 seconds
@@ -1470,23 +1551,45 @@ const gracefulShutdown = (signal) => {
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
-// Start the server and initialize connections
-server.listen(PORT, () => {
-    logger.info('LifeLine360 Backend Server started', {
-        port: PORT,
-        environment: process.env.NODE_ENV || 'development',
-        mongodb: 'mongodb://localhost:27017/lifeline360',
-        sampleData: SAMPLE_DATA_CONFIG.enabled,
-        mqtt: SAMPLE_DATA_CONFIG.enabled ? 'disabled (using sample data)' : {
-            broker: MQTT_BROKER,
-            topic: MQTT_TOPIC
+// Enhanced error handling for server startup
+const startServer = async () => {
+    try {
+        // Validate critical dependencies before starting
+        if (mongoose.connection.readyState !== 1) {
+            throw new Error('MongoDB connection not established');
         }
-    });
 
-    // Initialize data source
-    if (SAMPLE_DATA_CONFIG.enabled) {
-        startSampleDataGeneration();
-    } else {
-        connectMQTT();
+        // Start the server
+        server.listen(PORT, () => {
+            logger.info('LifeLine360 Backend Server started successfully', {
+                port: PORT,
+                environment: process.env.NODE_ENV || 'development',
+                mongodb: 'mongodb://localhost:27017/lifeline360',
+                sampleData: SAMPLE_DATA_CONFIG.enabled,
+                mqtt: SAMPLE_DATA_CONFIG.enabled ? 'disabled (using sample data)' : {
+                    broker: MQTT_BROKER,
+                    topic: MQTT_TOPIC
+                }
+            });
+
+            // Initialize data source after server is listening
+            if (SAMPLE_DATA_CONFIG.enabled) {
+                startSampleDataGeneration();
+            } else {
+                connectMQTT();
+            }
+        });
+
+        server.on('error', (error) => {
+            logger.error('Server failed to start', { error: error.message, port: PORT });
+            process.exit(1);
+        });
+
+    } catch (error) {
+        logger.error('Failed to start server', { error: error.message, stack: error.stack });
+        process.exit(1);
     }
-});
+};
+
+// Start server with proper error handling
+// startServer(); // Removed - now called after MongoDB connection
