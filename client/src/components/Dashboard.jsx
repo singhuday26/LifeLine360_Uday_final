@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useRealtimeData } from '../hooks/useRealtimeData';
+import { getApiBaseUrl, getWebSocketUrl } from '../utils/apiConfig';
 import GoogleMapsHotspotMap from './GoogleMapsHotspotMap';
 
 // Enhanced Premium Sensor Card Component
@@ -343,8 +344,8 @@ export default function EnhancedPremiumDashboard() {
     const [isAutoRefresh, setIsAutoRefresh] = useState(true);
     const [lastUpdated, setLastUpdated] = useState(new Date());
 
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-    const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:3001';
+    const apiUrl = getApiBaseUrl();
+    const wsUrl = getWebSocketUrl();
     const pollInterval = parseInt(import.meta.env.VITE_POLL_INTERVAL) || 30000;
 
     const {

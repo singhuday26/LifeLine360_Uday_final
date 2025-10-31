@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/useAuth';
-import { useNavigate, Link } from 'react-router-dom';
 
 const RegisterPage = () => {
     const [formData, setFormData] = useState({
@@ -12,10 +12,13 @@ const RegisterPage = () => {
         role: 'public'
     });
     const [error, setError] = useState('');
+    const [success, setSuccess] = useState('');
     const [loading, setLoading] = useState(false);
 
-    const { register } = useAuth();
+    const { register: registerUser, isLoading } = useAuth();
     const navigate = useNavigate();
+
+    const isBusy = loading || isLoading;
 
     const handleChange = (e) => {
         setFormData({
@@ -27,6 +30,7 @@ const RegisterPage = () => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError('');
+        setSuccess('');
 
         // Validate passwords match
         if (formData.password !== formData.confirmPassword) {
@@ -43,7 +47,7 @@ const RegisterPage = () => {
         setLoading(true);
 
         try {
-            const result = await register({
+            const result = await registerUser({
                 email: formData.email,
                 password: formData.password,
                 firstName: formData.firstName,
@@ -52,12 +56,16 @@ const RegisterPage = () => {
             });
 
             if (result.success) {
-                navigate('/dashboard');
+                setSuccess('Account created successfully! Redirecting to your dashboard...');
+                setTimeout(() => {
+                    navigate('/dashboard', { replace: true });
+                }, 1500);
             } else {
-                setError(result.message);
+                setError(result.message || 'Registration failed');
             }
-        } catch {
-            setError('An unexpected error occurred');
+        } catch (error) {
+            console.error('Registration error:', error);
+            setError('Registration failed. Please try again.');
         } finally {
             setLoading(false);
         }
@@ -180,12 +188,18 @@ const RegisterPage = () => {
                         </div>
                     )}
 
+                    {success && (
+                        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg">
+                            {success}
+                        </div>
+                    )}
+
                     <button
                         type="submit"
-                        disabled={loading}
+                        disabled={isBusy}
                         className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-3 px-4 rounded-lg font-medium hover:from-blue-700 hover:to-indigo-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        {loading ? 'Creating Account...' : 'Create Account'}
+                        {isBusy ? 'Creating Account...' : 'Create Account'}
                     </button>
                 </form>
 

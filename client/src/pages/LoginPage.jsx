@@ -1,28 +1,40 @@
 import React, { useState } from 'react';
-import axios from 'axios';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/useAuth';
 
 const LoginPage = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    const { login, isLoading } = useAuth();
+    const navigate = useNavigate();
+    const location = useLocation();
+    const redirectPath = location.state?.from?.pathname || '/dashboard';
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError('');
+        setIsSubmitting(true);
 
         try {
-            const response = await axios.post('/api/auth/login', {
-                email,
-                password
-            });
+            const result = await login(email, password);
 
-            // On success: console.log the received token
-            console.log('Login successful! Token:', response.data.data.token);
-        } catch (err) {
-            // On error: Show an error message above the form
-            setError(err.response?.data?.message || 'Login failed');
+            if (result.success) {
+                navigate(redirectPath, { replace: true });
+            } else {
+                setError(result.message || 'Login failed');
+            }
+        } catch (error) {
+            console.error('Login error:', error);
+            setError('Login failed. Please try again.');
+        } finally {
+            setIsSubmitting(false);
         }
     };
+
+    const isBusy = isSubmitting || isLoading;
 
     return (
         <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -66,11 +78,19 @@ const LoginPage = () => {
 
                     <button
                         type="submit"
-                        className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        disabled={isBusy}
+                        className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        Login
+                        {isBusy ? 'Signing in...' : 'Login'}
                     </button>
                 </form>
+
+                <p className="text-sm text-gray-600 text-center mt-4">
+                    Don't have an account?{' '}
+                    <Link to="/register" className="text-blue-600 hover:text-blue-800 font-medium">
+                        Sign up
+                    </Link>
+                </p>
             </div>
         </div>
     );

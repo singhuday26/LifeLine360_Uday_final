@@ -1,5 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AuthProvider } from "./contexts/AuthContext";
 import Home from "./pages/Home";
 import DashboardPage from "./pages/DashboardPage";
@@ -26,6 +26,10 @@ function BottomTabNavigation() {
     const location = useLocation();
     const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState(location.pathname);
+
+    useEffect(() => {
+        setActiveTab(location.pathname);
+    }, [location.pathname]);
 
     const tabs = [
         {
@@ -64,7 +68,7 @@ function BottomTabNavigation() {
     };
 
     // Don't show bottom tabs on certain pages
-    const hideTabsOn = ['/sensors', '/how-it-works'];
+    const hideTabsOn = ['/sensors', '/how-it-works', '/login', '/register', '/admin'];
     if (hideTabsOn.includes(location.pathname)) {
         return null;
     }
@@ -117,18 +121,22 @@ function App() {
                 <div className="relative min-h-screen">
                 <Routes>
                     {/* Public Routes */}
+                    <Route path="/" element={<Home />} />
                     <Route path="/login" element={<LoginPage />} />
+                    <Route path="/register" element={<RegisterPage />} />
                     <Route path="/how-it-works" element={<HowItWorksPage />} />
 
-                    {/* Protected Admin Routes */}
+                    {/* Protected Routes */}
                     <Route element={<ProtectedRoute />}>
-                        <Route path="/" element={<Home />} />
                         <Route path="/dashboard" element={<DashboardPage />} />
                         <Route path="/map" element={<MapPage />} />
                         <Route path="/report" element={<ReportPage />} />
                         <Route path="/sensors" element={<SensorsPage />} />
+                    </Route>
+
+                    {/* Admin-only Route */}
+                    <Route element={<ProtectedRoute allowedRoles={["fire_admin", "flood_admin", "super_admin"]} />}>
                         <Route path="/admin" element={<AdminDashboard />} />
-                        <Route path="/register" element={<RegisterPage />} />
                     </Route>
 
                     {/* 404 Page */}

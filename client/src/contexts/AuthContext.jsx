@@ -1,4 +1,5 @@
 import React, { useState, useEffect, createContext } from 'react';
+import { getApiBaseUrl } from '../utils/apiConfig';
 
 // Create the AuthContext
 const AuthContext = createContext();
@@ -10,7 +11,7 @@ export const AuthProvider = ({ children }) => {
     const [isLoading, setIsLoading] = useState(true);
 
     // Get API URL from environment
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+    const apiUrl = getApiBaseUrl();
 
     // Initialize auth state from localStorage on mount
     useEffect(() => {

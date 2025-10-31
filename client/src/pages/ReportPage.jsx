@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import Navbar from "../components/Navbar";
 import Footer from "../components/Footer";
 import { AlertTriangle, MapPin, Send, CheckCircle, XCircle } from 'lucide-react';
+import { getApiBaseUrl } from '../utils/apiConfig';
 
 export default function ReportPage() {
     const [formData, setFormData] = useState({
@@ -49,7 +50,7 @@ export default function ReportPage() {
 
         try {
             // Simulate API call - replace with actual API endpoint
-            const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+            const apiUrl = getApiBaseUrl();
 
             const response = await fetch(`${apiUrl}/api/incident-reports`, {
                 method: 'POST',

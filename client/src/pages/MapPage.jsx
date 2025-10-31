@@ -3,11 +3,12 @@ import Navbar from "../components/Navbar";
 import GoogleMapsHotspotMap from "../components/GoogleMapsHotspotMap";
 import Footer from "../components/Footer";
 import { useRealtimeData } from '../hooks/useRealtimeData';
+import { getApiBaseUrl, getWebSocketUrl } from '../utils/apiConfig';
 
 export default function MapPage() {
     // Get hotspots data from the real-time data hook
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-    const wsUrl = `ws://localhost:3001`;
+    const apiUrl = getApiBaseUrl();
+    const wsUrl = getWebSocketUrl();
 
     const { hotspots, isConnected } = useRealtimeData(apiUrl, wsUrl, {
         enablePolling: true,

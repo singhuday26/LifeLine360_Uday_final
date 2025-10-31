@@ -1,23 +1,28 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/useAuth';
 import { useNavigate } from 'react-router-dom';
+import { getApiBaseUrl } from '../utils/apiConfig';
 
 const AdminDashboard = () => {
-    const { user, logout, hasRole } = useAuth();
+    const { user, token, logout, hasRole } = useAuth();
     const navigate = useNavigate();
     const [stats, setStats] = useState(null);
     const [triageItems, setTriageItems] = useState([]);
     const [loading, setLoading] = useState(true);
     const [updatingStatus, setUpdatingStatus] = useState(null);
 
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+    const apiUrl = getApiBaseUrl();
 
     const fetchAdminStats = useCallback(async () => {
+        if (!token) {
+            return;
+        }
+
         try {
             const response = await fetch(`${apiUrl}/api/admin/stats`, {
                 method: 'GET',
                 headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+                    'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
                 }
             });
@@ -27,18 +32,24 @@ const AdminDashboard = () => {
                 if (data.success) {
                     setStats(data.data);
                 }
+            } else if (response.status === 401) {
+                logout();
             }
         } catch (error) {
             console.error('Error fetching admin stats:', error);
         }
-    }, [apiUrl]);
+    }, [apiUrl, token, logout]);
 
     const fetchTriageItems = useCallback(async () => {
+        if (!token) {
+            return;
+        }
+
         try {
             const response = await fetch(`${apiUrl}/api/admin/triage`, {
                 method: 'GET',
                 headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+                    'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
                 }
             });
@@ -48,19 +59,25 @@ const AdminDashboard = () => {
                 if (data.success) {
                     setTriageItems(data.data);
                 }
+            } else if (response.status === 401) {
+                logout();
             }
         } catch (error) {
             console.error('Error fetching triage items:', error);
         }
-    }, [apiUrl]);
+    }, [apiUrl, token, logout]);
 
     const updateIncidentStatus = async (incidentId, newStatus) => {
+        if (!token) {
+            return;
+        }
+
         setUpdatingStatus(incidentId);
         try {
             const response = await fetch(`${apiUrl}/api/admin/incidents/${incidentId}/status`, {
                 method: 'PATCH',
                 headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+                    'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ status: newStatus })

@@ -54,16 +54,36 @@ export default function Navbar() {
                         </Link>
                     </div>
 
-                    {/* CTA Button & Mobile Menu Button */}
+                    {/* CTA Buttons & Mobile Menu Button */}
                     <div className="flex items-center gap-4">
-                        <button className="hidden sm:inline-flex items-center px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white text-sm font-medium rounded-full hover:from-blue-600 hover:to-blue-700 transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-[1.02]">
-                            Open Demo
-                        </button>
+                        <Link
+                            to="/login"
+                            className="hidden sm:inline-flex items-center px-4 py-2 text-slate-600 hover:text-slate-900 text-sm font-medium transition-colors duration-200"
+                        >
+                            Sign In
+                        </Link>
+                        <Link
+                            to="/register"
+                            className="hidden sm:inline-flex items-center px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white text-sm font-medium rounded-full hover:from-blue-600 hover:to-blue-700 transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-[1.02]"
+                        >
+                            Sign Up
+                        </Link>
 
-                        {/* Mobile CTA Button */}
-                        <button className="sm:hidden inline-flex items-center px-3 py-1.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white text-xs font-medium rounded-full hover:from-blue-600 hover:to-blue-700 transition-all duration-200">
-                            Demo
-                        </button>
+                        {/* Mobile CTA Buttons */}
+                        <div className="sm:hidden flex items-center gap-2">
+                            <Link
+                                to="/login"
+                                className="inline-flex items-center px-3 py-1.5 text-slate-600 hover:text-slate-900 text-xs font-medium transition-colors duration-200"
+                            >
+                                Sign In
+                            </Link>
+                            <Link
+                                to="/register"
+                                className="inline-flex items-center px-3 py-1.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white text-xs font-medium rounded-full hover:from-blue-600 hover:to-blue-700 transition-all duration-200"
+                            >
+                                Sign Up
+                            </Link>
+                        </div>
 
                         {/* Mobile Menu Button */}
                         <button
@@ -116,6 +136,22 @@ export default function Navbar() {
                         >
                             How it works
                         </Link>
+                        <div className="border-t border-slate-200 mt-2 pt-2">
+                            <Link
+                                to="/login"
+                                onClick={closeMenu}
+                                className="block px-4 py-3 text-slate-600 hover:text-slate-900 hover:bg-white rounded-lg text-sm font-medium transition-all duration-200"
+                            >
+                                Sign In
+                            </Link>
+                            <Link
+                                to="/register"
+                                onClick={closeMenu}
+                                className="block px-4 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg text-sm font-medium transition-all duration-200 mt-1"
+                            >
+                                Sign Up
+                            </Link>
+                        </div>
                     </div>
                 </div>
             </div>

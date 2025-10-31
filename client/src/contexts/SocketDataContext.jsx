@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useCallback, createContext } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, createContext } from 'react';
+import { getWebSocketUrl } from '../utils/apiConfig';
 
 // Create the SocketDataContext
 const SocketDataContext = createContext();
@@ -46,10 +47,11 @@ export const SocketDataProvider = ({ children }) => {
   const [ws, setWs] = useState(null);
 
   // Function to connect to WebSocket server
+  const wsUrl = useMemo(() => getWebSocketUrl(), []);
+
   const connectWebSocket = useCallback(() => {
     try {
-      // Create WebSocket connection to backend server
-      const websocket = new WebSocket('ws://localhost:3001');
+      const websocket = new WebSocket(wsUrl);
 
       websocket.onopen = () => {
         console.log('Connected to LifeLine360 WebSocket server');
@@ -135,7 +137,7 @@ export const SocketDataProvider = ({ children }) => {
       console.error('Failed to create WebSocket connection:', error);
       setConnectionError('Failed to create WebSocket connection');
     }
-  }, []);
+  }, [wsUrl]);
 
   // Function to disconnect WebSocket
   const disconnectWebSocket = useCallback(() => {
