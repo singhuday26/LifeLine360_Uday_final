@@ -23,6 +23,7 @@ const {
 // Import routes
 const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
+const sensorRoutes = require('./routes/sensorRoutes');
 
 // Load environment variables
 require('dotenv').config();
@@ -76,6 +77,7 @@ const ALERT_RECIPIENTS = (process.env.ALERT_RECIPIENTS || 'admin@lifeline360.com
 // Initialize Express server
 const app = express();
 const PORT = process.env.PORT || 3001;
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/lifeline360';
 
 // Trust proxy for rate limiting behind reverse proxy
 app.set('trust proxy', 1);
@@ -83,7 +85,7 @@ app.set('trust proxy', 1);
 // Middleware
 app.use(compression()); // Compress responses
 // app.use(securityHeaders); // Security headers
-// app.use(corsOptions); // CORS
+app.use(corsOptions); // CORS
 // app.use(requestLogger); // Request logging
 // app.use(sanitizeInput); // Input sanitization
 // app.use(generalRateLimit); // General rate limiting
@@ -375,15 +377,17 @@ function broadcastToClients(data) {
 app.locals.broadcastToClients = broadcastToClients;
 
 // MongoDB Connection with proper error handling
-mongoose.connect('mongodb://localhost:27017/lifeline360', {
-    // Remove deprecated options
+mongoose.connect(MONGODB_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true
 }).then(() => {
-    console.log('Connected to MongoDB');
+    console.log('✅ MongoDB connected successfully');
+    logger.info('MongoDB connection established', { uri: MONGODB_URI });
     // Start server only after MongoDB connection is established
     startServer();
 }).catch(err => {
-    console.error('MongoDB connection error:', err);
-    logger.error('Failed to connect to MongoDB', { error: err.message });
+    console.error('❌ MongoDB connection failed:', err);
+    logger.error('Failed to connect to MongoDB', { error: err.message, uri: MONGODB_URI });
     process.exit(1); // Exit if database connection fails
 });
 
@@ -1003,6 +1007,7 @@ async function createHotspotFromSensor(sensorData, alertInfo) {
 // Basic Express routes
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/sensors', sensorRoutes);
 
 app.get('/', (req, res) => {
     res.json({
@@ -1564,7 +1569,7 @@ const startServer = async () => {
             logger.info('LifeLine360 Backend Server started successfully', {
                 port: PORT,
                 environment: process.env.NODE_ENV || 'development',
-                mongodb: 'mongodb://localhost:27017/lifeline360',
+                mongodb: MONGODB_URI,
                 sampleData: SAMPLE_DATA_CONFIG.enabled,
                 mqtt: SAMPLE_DATA_CONFIG.enabled ? 'disabled (using sample data)' : {
                     broker: MQTT_BROKER,
