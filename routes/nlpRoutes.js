@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const Joi = require('joi');
 const AlertCandidate = require('../models/AlertCandidate');
 const logger = require('../middleware/logger');
-const { protect, checkRole } = require('../middleware/auth');
+// const { protect, checkRole } = require('../middleware/auth');
 const nlpStream = require('../sse/nlpStream');
 
 const router = express.Router();
@@ -19,7 +19,8 @@ const verifySchema = Joi.object({
     note: Joi.string().allow('').optional()
 });
 
-router.use(protect, checkRole(['super_admin', 'fire_admin', 'flood_admin']));
+// Temporarily disabled authentication for NLP routes
+// router.use(protect, checkRole(['super_admin', 'fire_admin', 'flood_admin']));
 
 router.get('/nlp/candidates', async (req, res) => {
     const { error, value } = querySchema.validate(req.query);
@@ -61,8 +62,8 @@ router.post('/alerts/verify', async (req, res) => {
                 $set: {
                     status,
                     verifier: {
-                        userId: req.user._id.toString(),
-                        name: `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim() || req.user.email,
+                        userId: 'system', // Temporarily set to system since auth is disabled
+                        name: 'System Verifier',
                         at: new Date()
                     }
                 }

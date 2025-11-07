@@ -28,6 +28,7 @@ const commsRoutes = require('./routes/commsRoutes');
 const nlpRoutes = require('./routes/nlpRoutes');
 const nlpStream = require('./sse/nlpStream');
 const { protect, checkRole } = require('./middleware/auth');
+const { startNlpWorker } = require('./workers/nlpWorker');
 
 // Load environment variables
 require('dotenv').config();
@@ -389,6 +390,7 @@ mongoose.connect(MONGODB_URI, {
     logger.info('MongoDB connection established', { uri: MONGODB_URI });
     // Start server only after MongoDB connection is established
     startServer();
+    startNlpWorker();
 }).catch(err => {
     console.error('❌ MongoDB connection failed:', err);
     logger.error('Failed to connect to MongoDB', { error: err.message, uri: MONGODB_URI });
@@ -400,6 +402,7 @@ const Stats = require('./models/Stats');
 const Alert = require('./models/Alert');
 const IncidentReport = require('./models/IncidentReport');
 const User = require('./models/User');
+const SensorData = require('./models/SensorData');
 
 // Initialize Expo SDK for push notifications
 const expo = new Expo();
@@ -494,24 +497,6 @@ const hotspotSchema = new mongoose.Schema({
 });
 
 const Hotspot = mongoose.model('Hotspot', hotspotSchema);
-
-// SensorData Schema for storing MQTT messages
-const sensorDataSchema = new mongoose.Schema({
-    sensorId: { type: String, required: true },
-    type: { type: String, required: true }, // e.g., 'temperature', 'rainfall', 'seismic', etc.
-    value: { type: mongoose.Schema.Types.Mixed, required: true }, // Can be number, string, or object
-    unit: { type: String }, // e.g., '°C', 'mm', 'm/s²'
-    location: {
-        lat: { type: Number },
-        lng: { type: Number },
-        address: { type: String }
-    },
-    timestamp: { type: Date, default: Date.now },
-    topic: { type: String, required: true },
-    rawData: { type: mongoose.Schema.Types.Mixed } // Store the original MQTT payload
-});
-
-const SensorData = mongoose.model('SensorData', sensorDataSchema);
 
 // Function to save sensor data to MongoDB
 async function saveSensorData(sensorData, topic) {
@@ -1564,7 +1549,7 @@ const gracefulShutdown = (signal) => {
 
 // Handle shutdown signals
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+// process.on('SIGINT', () => gracefulShutdown('SIGINT')); // Commented out for testing
 
 // Enhanced error handling for server startup
 const startServer = async () => {

@@ -1,48 +1,28 @@
 const Communication = require('../models/Communication');
-const nlpStream = require('../sse/nlpStream');
-const { runNlpPipeline } = require('../services/nlp/pipeline');
-const logger = require('../middleware/logger');
+const AlertCandidate = require('../models/AlertCandidate');
+const { runNlpPipeline } = require('../services/nlp/runPipeline');
 
-const queue = [];
-let processing = false;
+function startNlpWorker() {
+    // eslint-disable-next-line no-console
+    console.log('✅ NLP Worker running…');
 
-function enqueueCommunication(commId) {
-    if (!commId) {
-        return;
-    }
-    queue.push(commId);
-    processQueue().catch(error => {
-        logger.error('Failed to process NLP queue', { error: error.message });
-    });
-}
+    setInterval(async () => {
+        const pending = await Communication.find({ processed: false }).limit(5);
 
-async function processQueue() {
-    if (processing) {
-        return;
-    }
-    processing = true;
+        for (const comm of pending) {
+            const result = await runNlpPipeline(comm);
 
-    while (queue.length > 0) {
-        const commId = queue.shift();
-        try {
-            const communication = await Communication.findById(commId);
-            if (!communication) {
-                logger.warn('Communication not found for NLP processing', { commId: commId.toString() });
-                continue;
-            }
+            await AlertCandidate.create({
+                commId: comm._id,
+                ...result
+            });
 
-            const { candidate } = await runNlpPipeline(communication);
-            if (candidate) {
-                nlpStream.broadcastCandidate(candidate.toObject ? candidate.toObject() : candidate);
-            }
-        } catch (error) {
-            logger.error('Error processing communication through NLP', { commId, error: error.message });
+            comm.processed = true;
+            await comm.save();
         }
-    }
-
-    processing = false;
+    }, 3000);
 }
 
 module.exports = {
-    enqueueCommunication
+    startNlpWorker
 };

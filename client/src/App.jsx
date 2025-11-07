@@ -1,6 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { AuthProvider } from "./contexts/AuthContext";
 import Home from "./pages/Home";
 import DashboardPage from "./pages/DashboardPage";
 import MapPage from "./pages/MapPage";
@@ -11,7 +10,6 @@ import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import AdminDashboard from "./pages/AdminDashboard";
 import NotFound from "./pages/NotFound";
-import ProtectedRoute from "./components/ProtectedRoute";
 import {
     BarChart3,
     Map,
@@ -116,37 +114,27 @@ function BottomTabNavigation() {
 // Main App Component
 function App() {
     return (
-        <AuthProvider>
-            <Router>
-                <div className="relative min-h-screen">
-                <Routes>
-                    {/* Public Routes */}
-                    <Route path="/" element={<Home />} />
-                    <Route path="/login" element={<LoginPage />} />
-                    <Route path="/register" element={<RegisterPage />} />
-                    <Route path="/how-it-works" element={<HowItWorksPage />} />
+        <Router>
+            <div className="relative min-h-screen">
+            <Routes>
+                {/* Public Routes */}
+                <Route path="/" element={<Home />} />
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/register" element={<RegisterPage />} />
+                <Route path="/how-it-works" element={<HowItWorksPage />} />
+                <Route path="/dashboard" element={<DashboardPage />} />
+                <Route path="/map" element={<MapPage />} />
+                <Route path="/report" element={<ReportPage />} />
+                <Route path="/sensors" element={<SensorsPage />} />
+                <Route path="/admin" element={<AdminDashboard />} />
 
-                    {/* Protected Routes */}
-                    <Route element={<ProtectedRoute />}>
-                        <Route path="/dashboard" element={<DashboardPage />} />
-                        <Route path="/map" element={<MapPage />} />
-                        <Route path="/report" element={<ReportPage />} />
-                        <Route path="/sensors" element={<SensorsPage />} />
-                    </Route>
-
-                    {/* Admin-only Route */}
-                    <Route element={<ProtectedRoute allowedRoles={["fire_admin", "flood_admin", "super_admin"]} />}>
-                        <Route path="/admin" element={<AdminDashboard />} />
-                    </Route>
-
-                    {/* 404 Page */}
-                    <Route path="*" element={<NotFound />} />
-                </Routes>
-                {/* Bottom Tab Navigation */}
-                    <BottomTabNavigation />
-                </div>
-            </Router>
-        </AuthProvider>
+                {/* 404 Page */}
+                <Route path="*" element={<NotFound />} />
+            </Routes>
+            {/* Bottom Tab Navigation */}
+                <BottomTabNavigation />
+            </div>
+        </Router>
     );
 }
 

@@ -10,7 +10,6 @@ export default function Home() {
         <div className="bg-slate-50 min-h-screen flex flex-col">
             <Navbar />
             <Hero />
-            <Statistics />
             <Features />
             <Statistics />
             <Technology />

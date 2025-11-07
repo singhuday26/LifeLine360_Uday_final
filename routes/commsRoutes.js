@@ -4,7 +4,6 @@ const jwt = require('jsonwebtoken');
 const Joi = require('joi');
 const Communication = require('../models/Communication');
 const logger = require('../middleware/logger');
-const { enqueueCommunication } = require('../workers/nlpWorker');
 
 const router = express.Router();
 
@@ -57,11 +56,9 @@ router.post('/ingest', ingestLimiter, async (req, res) => {
             userHandle: value.userHandle || user?.email
         });
 
-        enqueueCommunication(communication._id);
-
         res.status(201).json({
             success: true,
-            message: 'Communication queued for processing',
+            message: 'Communication received for processing',
             data: {
                 id: communication._id,
                 processed: communication.processed

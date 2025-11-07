@@ -1,16 +1,13 @@
-function normalizeText(text, lang = 'en') {
-    if (!text || typeof text !== 'string') {
-        return '';
-    }
-
-    const lower = text.toLowerCase();
-    const withoutUrls = lower.replace(/https?:\/\/\S+/g, ' ');
-    const withoutHandles = withoutUrls.replace(/@[\w_]+/g, ' ');
-    const withoutHashtags = withoutHandles.replace(/#[\w_]+/g, ' ');
-    const collapsed = withoutHashtags.replace(/[^a-z0-9\s.,!?\-]/g, ' ');
-    return collapsed.replace(/\s+/g, ' ').trim();
+function normalize(text) {
+    return (text || '')
+        .replace(/https?:\/\/\S+/g, '')
+        .replace(/[@#][A-Za-z0-9_]+/g, '')
+        .replace(/[^\w\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .toLowerCase()
+        .trim();
 }
 
 module.exports = {
-    normalizeText
+    normalize
 };

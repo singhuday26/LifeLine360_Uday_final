@@ -1,13 +1,15 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Menu, X, BarChart3 } from "lucide-react";
-import { useAuth } from "../contexts/useAuth";
+// import { useAuth } from "../contexts/useAuth";
 
 export default function Navbar() {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const navigate = useNavigate();
-    const { user, logout } = useAuth();
-    const isAuthenticated = Boolean(user);
+    // Temporarily disabled authentication
+    // const { user, logout } = useAuth();
+    // const isAuthenticated = Boolean(user);
+    const isAuthenticated = false; // Temporarily set to false
 
     const toggleMenu = () => {
         setIsMenuOpen(!isMenuOpen);
@@ -18,7 +20,7 @@ export default function Navbar() {
     };
 
     const handleLogout = () => {
-        logout();
+        // logout();
         closeMenu();
         navigate("/");
     };

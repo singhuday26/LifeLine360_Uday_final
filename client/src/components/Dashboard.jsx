@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
     Shield,
     Activity,
@@ -25,6 +25,125 @@ import { Link } from "react-router-dom";
 import { useRealtimeData } from '../hooks/useRealtimeData';
 import { getApiBaseUrl, getWebSocketUrl } from '../utils/apiConfig';
 import GoogleMapsHotspotMap from './GoogleMapsHotspotMap';
+
+const toNumber = (value) => {
+    if (value == null) {
+        return null;
+    }
+
+    if (typeof value === 'number') {
+        return Number.isFinite(value) ? value : null;
+    }
+
+    if (typeof value === 'string') {
+        const parsed = Number(value);
+        return Number.isNaN(parsed) ? null : parsed;
+    }
+
+    if (typeof value === 'boolean') {
+        return value ? 1 : 0;
+    }
+
+    return null;
+};
+
+const toDate = (value) => {
+    if (!value) {
+        return null;
+    }
+
+    const parsed = value instanceof Date ? value : new Date(value);
+    return Number.isNaN(parsed?.getTime?.()) ? null : parsed;
+};
+
+const buildMetric = (latest, previous) => {
+    if (!latest) {
+        return {
+            value: null,
+            unit: null,
+            latest: null,
+            previousValue: null,
+            timestamp: null,
+            previousTimestamp: null
+        };
+    }
+
+    const currentValue = toNumber(latest.value ?? latest.reading ?? latest.measurement);
+    const previousValue = previous ? toNumber(previous.value ?? previous.reading ?? previous.measurement) : null;
+
+    return {
+        value: currentValue,
+        unit: latest.unit || null,
+        latest,
+        previousValue,
+        timestamp: toDate(latest.timestamp),
+        previousTimestamp: toDate(previous?.timestamp)
+    };
+};
+
+const computeSensorMetrics = (sensorData = []) => {
+    if (!Array.isArray(sensorData) || sensorData.length === 0) {
+        return {
+            rawLatestByType: new Map()
+        };
+    }
+
+    const latestByType = new Map();
+    const previousByType = new Map();
+
+    sensorData.forEach((reading) => {
+        if (!reading) {
+            return;
+        }
+
+        const typeKey = (reading.type || '').toString().toLowerCase();
+        if (!typeKey) {
+            return;
+        }
+
+        if (!latestByType.has(typeKey)) {
+            latestByType.set(typeKey, reading);
+        } else if (!previousByType.has(typeKey)) {
+            previousByType.set(typeKey, reading);
+        }
+    });
+
+    const getMetric = (...types) => {
+        for (const type of types) {
+            const key = type.toString().toLowerCase();
+            if (latestByType.has(key)) {
+                return buildMetric(latestByType.get(key), previousByType.get(key));
+            }
+        }
+        return buildMetric(null, null);
+    };
+
+    const temperature = getMetric('temperature');
+    const humidity = getMetric('humidity');
+    const smoke = getMetric('smoke');
+    const gas = getMetric('gas', 'gasvalue', 'mq2', 'lpg');
+    const pm25 = getMetric('pm25', 'pm2.5', 'air_quality');
+    const pm10 = getMetric('pm10');
+    const rainfall = getMetric('rainfall', 'rain_level', 'rain');
+    const flood = getMetric('flood', 'water', 'waterlevel');
+    const seismic = getMetric('seismic', 'shake', 'vibration');
+    const flame = getMetric('flame', 'isflame');
+
+    return {
+        rawLatestByType: latestByType,
+        temperature,
+        humidity,
+        smoke,
+        gas,
+        pm25,
+        pm10,
+        rainfall,
+        flood,
+        seismic,
+        flame,
+        airQuality: getMetric('air_quality')
+    };
+};
 
 // Enhanced Premium Sensor Card Component
 function EnhancedSensorCard({ label, value, unit, icon: IconComponent, status = 'normal', trend }) { // eslint-disable-line no-unused-vars
@@ -115,11 +234,14 @@ function EnhancedHotspotMap({ hotspots, isConnected }) {
 }
 
 // Enhanced Sensor Readings with better organization
-function EnhancedSensorReadings({ sensorData, loading, error, isConnected, lastUpdated, refetch }) {
-    const latest = sensorData && sensorData.length > 0 ? sensorData[0] : null;
-    const previous = sensorData && sensorData.length > 1 ? sensorData[1] : null;
+function EnhancedSensorReadings({ sensorData, sensorMetrics = {}, loading, error, isConnected, lastUpdated, refetch }) {
+    const latestReading = Array.isArray(sensorData) && sensorData.length > 0 ? sensorData[0] : null;
 
     const getSensorStatus = (sensorType, value) => {
+        if (value == null || Number.isNaN(value)) {
+            return 'normal';
+        }
+
         switch (sensorType) {
             case 'temperature':
                 return value > 35 ? 'critical' : value > 30 ? 'warning' : 'normal';
@@ -140,18 +262,38 @@ function EnhancedSensorReadings({ sensorData, loading, error, isConnected, lastU
             case 'isFlame':
                 return value ? 'critical' : 'normal';
             case 'isRaining':
+            case 'rainLevel':
                 return value ? 'warning' : 'normal';
             default:
                 return 'normal';
         }
     };
 
-    const calculateTrend = (current, previous, field) => {
-        if (!previous || !current) return 0;
-        return current[field] - previous[field];
+    const formatCardValue = (metric, fractionDigits = 1) => {
+        if (!metric || metric.value == null || Number.isNaN(metric.value)) {
+            return '--';
+        }
+
+        if (typeof metric.value !== 'number') {
+            return metric.value;
+        }
+
+        return metric.value.toFixed(fractionDigits);
     };
 
-    if (loading && !latest) {
+    const calculateTrend = (metric) => {
+        if (!metric || metric.value == null || metric.previousValue == null) {
+            return 0;
+        }
+
+        if (Number.isNaN(metric.value) || Number.isNaN(metric.previousValue)) {
+            return 0;
+        }
+
+        return metric.value - metric.previousValue;
+    };
+
+    if (loading && !latestReading) {
         return (
             <div className="p-8 flex items-center justify-center">
                 <div className="flex items-center gap-4">
@@ -184,6 +326,99 @@ function EnhancedSensorReadings({ sensorData, loading, error, isConnected, lastU
         );
     }
 
+    const metricCards = [
+        {
+            key: 'temperature',
+            label: 'Temperature',
+            metric: sensorMetrics.temperature,
+            unit: sensorMetrics.temperature?.unit || '°C',
+            icon: Thermometer,
+            type: 'temperature',
+            precision: 1
+        },
+        {
+            key: 'humidity',
+            label: 'Humidity',
+            metric: sensorMetrics.humidity,
+            unit: '%',
+            icon: Droplets,
+            type: 'humidity',
+            precision: 1
+        },
+        {
+            key: 'gas',
+            label: 'Gas Level',
+            metric: sensorMetrics.gas,
+            unit: sensorMetrics.gas?.unit || 'ppm',
+            icon: Flame,
+            type: 'gasValue',
+            precision: 0
+        },
+        {
+            key: 'smoke',
+            label: 'Smoke Level',
+            metric: sensorMetrics.smoke,
+            unit: sensorMetrics.smoke?.unit || 'ppm',
+            icon: Wind,
+            type: 'smoke',
+            precision: 0
+        },
+        {
+            key: 'pm25',
+            label: 'Air Quality PM2.5',
+            metric: sensorMetrics.pm25?.latest ? sensorMetrics.pm25 : sensorMetrics.airQuality,
+            unit: sensorMetrics.pm25?.unit || sensorMetrics.airQuality?.unit || 'μg/m³',
+            icon: Activity,
+            type: 'pm25',
+            precision: 0
+        },
+        {
+            key: 'pm10',
+            label: 'Air Quality PM10',
+            metric: sensorMetrics.pm10,
+            unit: sensorMetrics.pm10?.unit || 'μg/m³',
+            icon: Activity,
+            type: 'pm10',
+            precision: 0
+        },
+        {
+            key: 'water',
+            label: 'Water Level',
+            metric: sensorMetrics.flood,
+            unit: sensorMetrics.flood?.unit || 'm',
+            icon: Waves,
+            type: 'waterLevel',
+            precision: 1
+        },
+        {
+            key: 'rainfall',
+            label: 'Rain Level',
+            metric: sensorMetrics.rainfall,
+            unit: sensorMetrics.rainfall?.unit || 'mm',
+            icon: CloudRain,
+            type: 'rainLevel',
+            precision: 1
+        },
+        {
+            key: 'flame',
+            label: 'Flame Detection',
+            metric: sensorMetrics.flame,
+            unit: '',
+            icon: Flame,
+            type: 'isFlame',
+            boolean: true
+        },
+        {
+            key: 'seismic',
+            label: 'Vibration',
+            metric: sensorMetrics.seismic,
+            unit: sensorMetrics.seismic?.unit || 'g',
+            icon: Mountain,
+            type: 'shake',
+            precision: 2
+        }
+    ];
+
     return (
         <div className="p-6 space-y-6">
             {/* Enhanced Status Header */}
@@ -212,87 +447,30 @@ function EnhancedSensorReadings({ sensorData, loading, error, isConnected, lastU
             </div>
 
             {/* Enhanced Sensor Grid */}
-            {latest ? (
+            {latestReading ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <EnhancedSensorCard
-                        label="Temperature"
-                        value={latest.temperature?.toFixed(1) || '--'}
-                        unit="°C"
-                        icon={Thermometer}
-                        status={getSensorStatus('temperature', latest.temperature)}
-                        trend={calculateTrend(latest, previous, 'temperature')}
-                    />
-                    <EnhancedSensorCard
-                        label="Humidity"
-                        value={latest.humidity?.toFixed(1) || '--'}
-                        unit="%"
-                        icon={Droplets}
-                        status={getSensorStatus('humidity', latest.humidity)}
-                        trend={calculateTrend(latest, previous, 'humidity')}
-                    />
-                    <EnhancedSensorCard
-                        label="Gas Level"
-                        value={latest.gasValue || '--'}
-                        unit="ppm"
-                        icon={Flame}
-                        status={getSensorStatus('gasValue', latest.gasValue)}
-                        trend={calculateTrend(latest, previous, 'gasValue')}
-                    />
-                    <EnhancedSensorCard
-                        label="Smoke Level"
-                        value={latest.smoke || '--'}
-                        unit="ppm"
-                        icon={Wind}
-                        status={getSensorStatus('smoke', latest.smoke)}
-                        trend={calculateTrend(latest, previous, 'smoke')}
-                    />
-                    <EnhancedSensorCard
-                        label="Air Quality PM2.5"
-                        value={latest.pm25 || '--'}
-                        unit="μg/m³"
-                        icon={Activity}
-                        status={getSensorStatus('pm25', latest.pm25)}
-                        trend={calculateTrend(latest, previous, 'pm25')}
-                    />
-                    <EnhancedSensorCard
-                        label="Air Quality PM10"
-                        value={latest.pm10 || '--'}
-                        unit="μg/m³"
-                        icon={Activity}
-                        status={getSensorStatus('pm10', latest.pm10)}
-                        trend={calculateTrend(latest, previous, 'pm10')}
-                    />
-                    <EnhancedSensorCard
-                        label="Water Level"
-                        value={latest.waterLevel?.toFixed(1) || '--'}
-                        unit="m"
-                        icon={Waves}
-                        status={getSensorStatus('waterLevel', latest.waterLevel)}
-                        trend={calculateTrend(latest, previous, 'waterLevel')}
-                    />
-                    <EnhancedSensorCard
-                        label="Rain Level"
-                        value={latest.rainLevel?.toFixed(1) || latest.rainAnalog || '--'}
-                        unit="mm"
-                        icon={CloudRain}
-                        status={getSensorStatus('rainLevel', latest.rainLevel || latest.rainAnalog)}
-                        trend={calculateTrend(latest, previous, 'rainLevel')}
-                    />
-                    <EnhancedSensorCard
-                        label="Flame Detection"
-                        value={latest.isFlame ? 'DETECTED' : 'CLEAR'}
-                        unit=""
-                        icon={Flame}
-                        status={getSensorStatus('isFlame', latest.isFlame)}
-                    />
-                    <EnhancedSensorCard
-                        label="Vibration"
-                        value={latest.shake?.toFixed(2) || '--'}
-                        unit="g"
-                        icon={Mountain}
-                        status={getSensorStatus('shake', latest.shake)}
-                        trend={calculateTrend(latest, previous, 'shake')}
-                    />
+                    {metricCards.map((card) => {
+                        const metric = card.metric;
+                        const isBoolean = Boolean(card.boolean);
+                        const displayValue = isBoolean
+                            ? (metric && metric.value ? 'DETECTED' : 'CLEAR')
+                            : formatCardValue(metric, card.precision ?? 1);
+                        const unit = !isBoolean && displayValue !== '--' ? card.unit : '';
+                        const trendValue = !isBoolean ? calculateTrend(metric) : 0;
+                        const trend = trendValue !== 0 ? trendValue : null;
+
+                        return (
+                            <EnhancedSensorCard
+                                key={card.key}
+                                label={card.label}
+                                value={displayValue}
+                                unit={unit}
+                                icon={card.icon}
+                                status={getSensorStatus(card.type, metric?.value)}
+                                trend={trend}
+                            />
+                        );
+                    })}
 
                     {/* Enhanced Location Card */}
                     <div className="md:col-span-2 lg:col-span-3 bg-gradient-to-br from-purple-50 via-violet-50 to-purple-50 border border-purple-200/60 rounded-2xl p-6 relative overflow-hidden shadow-lg hover:shadow-purple-500/10 transition-all duration-500">
@@ -309,7 +487,7 @@ function EnhancedSensorReadings({ sensorData, loading, error, isConnected, lastU
                                     GPS COORDINATES
                                 </div>
                                 <div className="text-2xl font-black text-slate-800 mb-1">
-                                    {latest.latitude?.toFixed(6) || '--'}, {latest.longitude?.toFixed(6) || '--'}
+                                    {latestReading.latitude?.toFixed(6) || '--'}, {latestReading.longitude?.toFixed(6) || '--'}
                                 </div>
                                 <div className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold text-purple-700 bg-purple-100 uppercase tracking-wide">
                                     LIVE TRACKING
@@ -344,6 +522,11 @@ export default function EnhancedPremiumDashboard() {
     const [isAutoRefresh, setIsAutoRefresh] = useState(true);
     const [lastUpdated, setLastUpdated] = useState(new Date());
 
+    // NLP State
+    const [nlpCandidates, setNlpCandidates] = useState([]);
+    const [nlpLoading, setNlpLoading] = useState(false);
+    const [nlpError, setNlpError] = useState(null);
+
     const apiUrl = getApiBaseUrl();
     const wsUrl = getWebSocketUrl();
     const pollInterval = parseInt(import.meta.env.VITE_POLL_INTERVAL) || 30000;
@@ -362,9 +545,80 @@ export default function EnhancedPremiumDashboard() {
         enablePolling: isAutoRefresh
     });
 
+    const sensorMetrics = useMemo(
+        () => computeSensorMetrics(sensorData),
+        [sensorData]
+    );
+
+    const formatMetricValue = useCallback((metric, fractionDigits = 1) => {
+        if (!metric || metric.value == null || Number.isNaN(metric.value)) {
+            return '--';
+        }
+
+        if (typeof metric.value !== 'number') {
+            return metric.value;
+        }
+
+        return metric.value.toFixed(fractionDigits);
+    }, []);
+
     const handleRefresh = () => {
         setLastUpdated(new Date());
         refetch();
+    };
+
+    // NLP Functions
+    const fetchNlpCandidates = useCallback(async () => {
+        try {
+            setNlpLoading(true);
+            setNlpError(null);
+            const response = await fetch(`${apiUrl}/api/nlp/candidates?status=PENDING`);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const result = await response.json();
+            if (result.success) {
+                setNlpCandidates(result.data || []);
+            } else {
+                throw new Error(result.message || 'Failed to fetch NLP candidates');
+            }
+        } catch (err) {
+            console.error('Error fetching NLP candidates:', err);
+            setNlpError(err.message);
+        } finally {
+            setNlpLoading(false);
+        }
+    }, [apiUrl]);
+
+    const handleNlpVerification = async (candidateId, decision, note = '') => {
+        try {
+            const response = await fetch(`${apiUrl}/api/alerts/verify`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    candidateId,
+                    decision,
+                    note
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const result = await response.json();
+            if (result.success) {
+                // Refresh candidates after verification
+                fetchNlpCandidates();
+            } else {
+                throw new Error(result.message || 'Failed to verify candidate');
+            }
+        } catch (err) {
+            console.error('Error verifying NLP candidate:', err);
+            setNlpError(err.message);
+        }
     };
 
     const formatLastUpdated = (date) => {
@@ -376,10 +630,29 @@ export default function EnhancedPremiumDashboard() {
         });
     };
 
-    const latest = sensorData && sensorData.length > 0 ? sensorData[0] : null;
-
     const criticalAlerts = stats?.activeAlerts || 0;
     const activeSensors = stats?.sensorsOnline || sensorData?.length || 0;
+
+    const temperatureMetric = sensorMetrics.temperature || {};
+    const smokeMetric = sensorMetrics.smoke || {};
+
+    const isHighTemperature = temperatureMetric.value != null && temperatureMetric.value > 35;
+    const temperatureDisplay = formatMetricValue(temperatureMetric, 1);
+
+    const smokeValue = smokeMetric.value;
+    const smokeSeverity = smokeValue != null
+        ? smokeValue > 2000
+            ? 'critical'
+            : smokeValue > 1000
+                ? 'warning'
+                : 'normal'
+        : 'normal';
+    const smokeDisplay = smokeValue == null || Number.isNaN(smokeValue) ? '--' : smokeValue.toFixed(0);
+
+    // Fetch NLP candidates on component mount
+    useEffect(() => {
+        fetchNlpCandidates();
+    }, [fetchNlpCandidates]);
 
     if (error) {
         return (
@@ -512,13 +785,20 @@ export default function EnhancedPremiumDashboard() {
                             <div className="bg-gradient-to-br from-blue-100 to-sky-100 p-3 rounded-xl shadow-sm group-hover:scale-110 transition-transform duration-300">
                                 <Thermometer className="w-8 h-8 text-blue-600" />
                             </div>
-                            <TrendingUp className={`w-6 h-6 ${latest?.temperature > 35 ? 'text-red-500' : 'text-emerald-500'}`} />
+                            <TrendingUp className={`w-6 h-6 ${isHighTemperature ? 'text-red-500' : 'text-emerald-500'}`} />
                         </div>
                         <div className="relative z-10">
-                            <div className="text-4xl font-black text-slate-900 mb-2">{latest?.temperature?.toFixed(1) || '--'}°C</div>
+                            <div className="text-4xl font-black text-slate-900 mb-2">
+                                {temperatureDisplay}
+                                {temperatureDisplay !== '--' && (
+                                    <span className="text-2xl font-semibold text-slate-500 ml-1">
+                                        {temperatureMetric.unit || '°C'}
+                                    </span>
+                                )}
+                            </div>
                             <div className="text-sm font-bold text-slate-600 uppercase tracking-wider mb-3">Temperature</div>
-                            <div className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${latest?.temperature > 35 ? 'text-red-700 bg-red-100' : 'text-emerald-700 bg-emerald-100'}`}>
-                                {latest?.temperature > 35 ? 'HIGH TEMPERATURE' : 'NORMAL RANGE'}
+                            <div className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${isHighTemperature ? 'text-red-700 bg-red-100' : 'text-emerald-700 bg-emerald-100'}`}>
+                                {isHighTemperature ? 'HIGH TEMPERATURE' : 'NORMAL RANGE'}
                             </div>
                         </div>
                     </div>
@@ -530,13 +810,20 @@ export default function EnhancedPremiumDashboard() {
                             <div className="bg-gradient-to-br from-emerald-100 to-teal-100 p-3 rounded-xl shadow-sm group-hover:scale-110 transition-transform duration-300">
                                 <Wind className="w-8 h-8 text-emerald-600" />
                             </div>
-                            <Activity className="w-6 h-6 text-emerald-500" />
+                            <Activity className={`w-6 h-6 ${smokeSeverity === 'critical' ? 'text-red-500' : smokeSeverity === 'warning' ? 'text-amber-500' : 'text-emerald-500'}`} />
                         </div>
                         <div className="relative z-10">
-                            <div className="text-4xl font-black text-slate-900 mb-2">{latest?.smoke || '--'}</div>
+                            <div className="text-4xl font-black text-slate-900 mb-2">
+                                {smokeDisplay}
+                                {smokeDisplay !== '--' && (
+                                    <span className="text-2xl font-semibold text-slate-500 ml-1">
+                                        {smokeMetric.unit || 'ppm'}
+                                    </span>
+                                )}
+                            </div>
                             <div className="text-sm font-bold text-slate-600 uppercase tracking-wider mb-3">Smoke Level</div>
-                            <div className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${latest?.smoke > 2000 ? 'text-red-700 bg-red-100' : latest?.smoke > 1000 ? 'text-amber-700 bg-amber-100' : 'text-emerald-700 bg-emerald-100'}`}>
-                                {latest?.smoke > 2000 ? 'CRITICAL LEVEL' : latest?.smoke > 1000 ? 'WARNING LEVEL' : 'NORMAL RANGE'}
+                            <div className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${smokeSeverity === 'critical' ? 'text-red-700 bg-red-100' : smokeSeverity === 'warning' ? 'text-amber-700 bg-amber-100' : 'text-emerald-700 bg-emerald-100'}`}>
+                                {smokeSeverity === 'critical' ? 'CRITICAL LEVEL' : smokeSeverity === 'warning' ? 'WARNING LEVEL' : 'NORMAL RANGE'}
                             </div>
                         </div>
                     </div>
@@ -603,6 +890,119 @@ export default function EnhancedPremiumDashboard() {
                                 refetch={refetch}
                             />
                         </div>
+                    </div>
+                </div>
+
+                {/* NLP Alerts Section */}
+                <div className="bg-white/80 backdrop-blur-sm rounded-3xl border-2 border-slate-200/60 overflow-hidden shadow-2xl shadow-slate-500/10">
+                    <div className="p-6 border-b border-slate-200/60 bg-gradient-to-r from-slate-50 to-gray-50">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-4">
+                                <div className="bg-gradient-to-br from-purple-100 to-pink-100 p-3 rounded-xl shadow-sm">
+                                    <AlertTriangle className="w-6 h-6 text-purple-600" />
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-bold text-slate-900">NLP-Processed Alerts</h3>
+                                    <p className="text-sm text-slate-600 font-medium">AI-generated emergency candidates</p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                {nlpLoading && (
+                                    <div className="flex items-center gap-2">
+                                        <RefreshCw className="w-4 h-4 animate-spin text-slate-600" />
+                                        <span className="text-sm text-slate-600">Processing...</span>
+                                    </div>
+                                )}
+                                <button
+                                    onClick={fetchNlpCandidates}
+                                    disabled={nlpLoading}
+                                    className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-sm font-medium text-slate-700 transition-colors disabled:opacity-50"
+                                >
+                                    <RefreshCw className={`w-4 h-4 ${nlpLoading ? 'animate-spin' : ''}`} />
+                                    Refresh
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="p-6">
+                        {nlpError && (
+                            <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-4">
+                                <div className="flex items-center gap-2">
+                                    <AlertTriangle className="w-5 h-5 text-red-500" />
+                                    <span className="text-red-700 font-medium">Error loading NLP alerts</span>
+                                </div>
+                                <p className="text-red-600 text-sm mt-1">{nlpError}</p>
+                            </div>
+                        )}
+
+                        {!nlpLoading && !nlpError && nlpCandidates.length === 0 && (
+                            <div className="text-center py-12">
+                                <Activity className="w-12 h-12 text-slate-400 mx-auto mb-4" />
+                                <h4 className="text-lg font-semibold text-slate-600 mb-2">No Pending Alerts</h4>
+                                <p className="text-slate-500">All emergency situations have been processed.</p>
+                            </div>
+                        )}
+
+                        {nlpCandidates.length > 0 && (
+                            <div className="space-y-4 max-h-96 overflow-y-auto">
+                                {nlpCandidates.map((candidate) => (
+                                    <div key={candidate._id} className="bg-gradient-to-r from-slate-50 to-gray-50 border border-slate-200/60 rounded-xl p-4 hover:shadow-md transition-shadow">
+                                        <div className="flex items-start justify-between mb-3">
+                                            <div className="flex items-center gap-3">
+                                                <div className={`w-3 h-3 rounded-full ${
+                                                    candidate.severity === 'CRITICAL' ? 'bg-red-500' :
+                                                    candidate.severity === 'WARNING' ? 'bg-amber-500' : 'bg-blue-500'
+                                                } animate-pulse`}></div>
+                                                <div>
+                                                    <h4 className="font-bold text-slate-900">{candidate.hazard}</h4>
+                                                    <p className="text-sm text-slate-600">
+                                                        Confidence: {(candidate.confidence * 100).toFixed(1)}%
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${
+                                                candidate.severity === 'CRITICAL' ? 'bg-red-100 text-red-700' :
+                                                candidate.severity === 'WARNING' ? 'bg-amber-100 text-amber-700' :
+                                                'bg-blue-100 text-blue-700'
+                                            }`}>
+                                                {candidate.severity}
+                                            </div>
+                                        </div>
+
+                                        {candidate.centroid && (
+                                            <div className="text-sm text-slate-600 mb-2">
+                                                Location: {candidate.centroid.lat.toFixed(4)}, {candidate.centroid.lng.toFixed(4)}
+                                            </div>
+                                        )}
+
+                                        {candidate.explanation && (
+                                            <p className="text-sm text-slate-700 mb-3">{candidate.explanation}</p>
+                                        )}
+
+                                        <div className="flex items-center justify-between">
+                                            <div className="text-xs text-slate-500">
+                                                {new Date(candidate.createdAt).toLocaleString()}
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <button
+                                                    onClick={() => handleNlpVerification(candidate._id, 'REJECT')}
+                                                    className="px-3 py-1 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-sm font-medium transition-colors"
+                                                >
+                                                    Reject
+                                                </button>
+                                                <button
+                                                    onClick={() => handleNlpVerification(candidate._id, 'VERIFY')}
+                                                    className="px-3 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg text-sm font-medium transition-colors"
+                                                >
+                                                    Verify
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
