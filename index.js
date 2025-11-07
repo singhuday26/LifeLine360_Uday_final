@@ -24,6 +24,10 @@ const {
 const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
 const sensorRoutes = require('./routes/sensorRoutes');
+const commsRoutes = require('./routes/commsRoutes');
+const nlpRoutes = require('./routes/nlpRoutes');
+const nlpStream = require('./sse/nlpStream');
+const { protect, checkRole } = require('./middleware/auth');
 
 // Load environment variables
 require('dotenv').config();
@@ -1008,6 +1012,12 @@ async function createHotspotFromSensor(sensorData, alertInfo) {
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/sensors', sensorRoutes);
+app.use('/api/comms', commsRoutes);
+app.use('/api', nlpRoutes);
+
+app.get('/api/nlp/stream', protect, checkRole(['super_admin', 'fire_admin', 'flood_admin']), (req, res) => {
+    nlpStream.registerStream(req, res);
+});
 
 app.get('/', (req, res) => {
     res.json({

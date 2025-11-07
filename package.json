@@ -8,7 +8,8 @@
     "build": "npm --prefix client run build",
     "lint": "npm --prefix client run lint",
     "server": "node index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "npm run test:nlp",
+    "test:nlp": "vitest run"
   },
   "private": true,
   "dependencies": {
@@ -19,13 +20,19 @@
     "expo-server-sdk": "^4.0.0",
     "express": "^5.1.0",
     "express-rate-limit": "^8.2.0",
+    "franc": "^6.2.0",
     "helmet": "^8.1.0",
+    "iso-639-3": "^3.1.1",
     "joi": "^18.0.1",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.19.2",
     "mqtt": "^5.14.1",
+    "node-fetch": "^3.3.2",
     "nodemailer": "^7.0.10",
     "winston": "^3.18.3",
     "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "vitest": "^1.6.0"
   }
 }
